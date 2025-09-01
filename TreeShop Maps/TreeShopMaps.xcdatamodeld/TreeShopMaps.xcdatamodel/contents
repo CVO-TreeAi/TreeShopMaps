@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="21513" systemVersion="22D68" minimumToolsVersion="Automatic" sourceLanguage="Swift" userDefinedModelVersionIdentifier="">
+    <entity name="Property" representedClassName="Property" syncable="YES" codeGenerationType="class">
+        <attribute name="address" optional="YES" attributeType="String"/>
+        <attribute name="clientName" optional="YES" attributeType="String"/>
+        <attribute name="createdDate" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="emailAddress" optional="YES" attributeType="String"/>
+        <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="lastModified" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="phoneNumber" optional="YES" attributeType="String"/>
+        <relationship name="sessions" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="WorkSession" inverseName="property" inverseEntity="WorkSession"/>
+        <relationship name="treeMarks" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="TreeMark" inverseName="property" inverseEntity="TreeMark"/>
+        <relationship name="workZones" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="WorkZone" inverseName="property" inverseEntity="WorkZone"/>
+    </entity>
+    <entity name="SessionPhoto" representedClassName="SessionPhoto" syncable="YES" codeGenerationType="class">
+        <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="latitude" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
+        <attribute name="longitude" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
+        <attribute name="notes" optional="YES" attributeType="String"/>
+        <attribute name="photoData" optional="YES" attributeType="Binary"/>
+        <attribute name="photoType" optional="YES" attributeType="String"/>
+        <attribute name="timestamp" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <relationship name="session" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="WorkSession" inverseName="photos" inverseEntity="WorkSession"/>
+    </entity>
+    <entity name="TreeMark" representedClassName="TreeMark" syncable="YES" codeGenerationType="class">
+        <attribute name="canopyRadius" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
+        <attribute name="dateMarked" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="dbh" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
+        <attribute name="healthStatus" optional="YES" attributeType="String"/>
+        <attribute name="height" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
+        <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="latitude" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
+        <attribute name="longitude" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
+        <attribute name="markedBy" optional="YES" attributeType="String"/>
+        <attribute name="notes" optional="YES" attributeType="String"/>
+        <attribute name="photoData" optional="YES" attributeType="Binary"/>
+        <attribute name="species" optional="YES" attributeType="String"/>
+        <attribute name="workRecommended" optional="YES" attributeType="String"/>
+        <relationship name="property" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Property" inverseName="treeMarks" inverseEntity="Property"/>
+    </entity>
+    <entity name="WorkSession" representedClassName="WorkSession" syncable="YES" codeGenerationType="class">
+        <attribute name="acresCovered" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
+        <attribute name="endTime" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="fuelUsed" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
+        <attribute name="gpsTrackData" optional="YES" attributeType="Binary"/>
+        <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="machineID" optional="YES" attributeType="String"/>
+        <attribute name="operatorName" optional="YES" attributeType="String"/>
+        <attribute name="startTime" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="weatherConditions" optional="YES" attributeType="String"/>
+        <relationship name="photos" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="SessionPhoto" inverseName="session" inverseEntity="SessionPhoto"/>
+        <relationship name="property" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Property" inverseName="sessions" inverseEntity="Property"/>
+    </entity>
+    <entity name="WorkZone" representedClassName="WorkZone" syncable="YES" codeGenerationType="class">
+        <attribute name="acreage" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
+        <attribute name="estimatedHours" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
+        <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="isCompleted" optional="YES" attributeType="Boolean" usesScalarValueType="YES"/>
+        <attribute name="notes" optional="YES" attributeType="String"/>
+        <attribute name="polygonData" optional="YES" attributeType="Binary"/>
+        <attribute name="priceEstimate" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
+        <attribute name="servicePackage" optional="YES" attributeType="String"/>
+        <relationship name="property" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Property" inverseName="workZones" inverseEntity="Property"/>
+    </entity>
+</model>
