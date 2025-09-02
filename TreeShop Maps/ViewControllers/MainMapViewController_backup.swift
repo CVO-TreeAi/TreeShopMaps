@@ -392,7 +392,16 @@ class MainMapViewController: UIViewController {
         
         let flexSpace = UIBarButtonItem(barButtonSystemItem: .flexibleSpace, target: nil, action: nil)
         
-        toolbar.items = [searchLocationButton, flexSpace, historyButton, flexSpace, drawButton, flexSpace, measureButton, flexSpace, undoButton, flexSpace, saveButton, flexSpace, unitsButton, flexSpace, aboutButton, flexSpace, clearButton]
+        // CREATE MORE BUTTON
+        let moreButton = UIBarButtonItem(
+            title: "MORE",
+            style: .plain,
+            target: self,
+            action: #selector(showMoreMenu)
+        )
+        
+        // FORCE EXACTLY 3 BUTTONS ONLY  
+        toolbar.items = [drawButton, measureButton, moreButton]
         
         // Add toolbar to view AFTER setting up items
         view.addSubview(toolbar)
