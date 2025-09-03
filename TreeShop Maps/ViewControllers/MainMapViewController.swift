@@ -3,6 +3,128 @@ import MapKit
 import CoreData
 import CoreLocation
 
+// MARK: - WorkArea Model (Service Package Integration)
+
+class WorkArea: NSObject {
+    let polygon: MKPolygon
+    let servicePackage: ServicePackage
+    let area: Double // in acres
+    let perimeter: Double // in feet
+    let estimatedCost: Double
+    let estimatedHours: Double
+    let dateCreated: Date
+    var name: String
+    
+    init(polygon: MKPolygon, servicePackage: ServicePackage, name: String = "") {
+        self.polygon = polygon
+        self.servicePackage = servicePackage
+        self.name = name.isEmpty ? servicePackage.description : name
+        self.dateCreated = Date()
+        
+        // Calculate area and perimeter
+        let area = WorkArea.calculateArea(polygon: polygon)
+        self.area = area
+        self.perimeter = WorkArea.calculatePerimeter(polygon: polygon)
+        
+        // Calculate estimates based on service package
+        self.estimatedCost = area * servicePackage.pricePerAcre
+        self.estimatedHours = area * servicePackage.estimatedHoursPerAcre
+        
+        super.init()
+        
+        // Set polygon properties for display
+        polygon.title = servicePackage.rawValue
+        polygon.subtitle = String(format: "%.2f acres - $%.0f", area, estimatedCost)
+    }
+    
+    private static func calculateArea(polygon: MKPolygon) -> Double {
+        let points = Array(UnsafeBufferPointer(start: polygon.points(), count: polygon.pointCount))
+        var area: Double = 0
+        
+        for i in 0..<points.count {
+            let j = (i + 1) % points.count
+            let xi = points[i].coordinate.longitude
+            let yi = points[i].coordinate.latitude
+            let xj = points[j].coordinate.longitude
+            let yj = points[j].coordinate.latitude
+            
+            area += xi * yj - xj * yi
+        }
+        
+        area = abs(area) / 2.0
+        
+        // Convert from decimal degrees to acres (rough approximation)
+        let squareMetersPerDegreeSquared = 111000 * 111000 * cos(points.first?.coordinate.latitude ?? 0)
+        let squareMeters = area * squareMetersPerDegreeSquared
+        let acres = squareMeters / 4047 // Convert square meters to acres
+        
+        return acres
+    }
+    
+    private static func calculatePerimeter(polygon: MKPolygon) -> Double {
+        let points = Array(UnsafeBufferPointer(start: polygon.points(), count: polygon.pointCount))
+        var perimeter: Double = 0
+        
+        for i in 0..<points.count {
+            let j = (i + 1) % points.count
+            let point1 = CLLocation(latitude: points[i].coordinate.latitude, longitude: points[i].coordinate.longitude)
+            let point2 = CLLocation(latitude: points[j].coordinate.latitude, longitude: points[j].coordinate.longitude)
+            perimeter += point1.distance(from: point2)
+        }
+        
+        return perimeter * 3.28084 // Convert meters to feet
+    }
+    
+    var detailedInfo: String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.maximumFractionDigits = 0
+        
+        let cost = formatter.string(from: NSNumber(value: estimatedCost)) ?? "$\(Int(estimatedCost))"
+        
+        return """
+        📏 Area: \(String(format: "%.2f", area)) acres
+        📐 Perimeter: \(String(format: "%.0f", perimeter)) ft
+        🌳 Service: \(servicePackage.description)
+        💰 Estimated Cost: \(cost)
+        ⏱️ Estimated Time: \(String(format: "%.1f", estimatedHours)) hours
+        📅 Created: \(DateFormatter.localizedString(from: dateCreated, dateStyle: .short, timeStyle: .short))
+        """
+    }
+    
+    var color: UIColor {
+        return servicePackage.color
+    }
+    
+    var strokeColor: UIColor {
+        return servicePackage.color.withAlphaComponent(1.0)
+    }
+    
+    var centerCoordinate: CLLocationCoordinate2D {
+        let points = Array(UnsafeBufferPointer(start: polygon.points(), count: polygon.pointCount))
+        let sumLat = points.reduce(0) { $0 + $1.coordinate.latitude }
+        let sumLon = points.reduce(0) { $0 + $1.coordinate.longitude }
+        return CLLocationCoordinate2D(
+            latitude: sumLat / Double(points.count),
+            longitude: sumLon / Double(points.count)
+        )
+    }
+}
+
+// MARK: - Custom Annotation for Work Area Labels
+class WorkAreaLabel: MKPointAnnotation {
+    let workArea: WorkArea
+    
+    init(workArea: WorkArea) {
+        self.workArea = workArea
+        super.init()
+        
+        self.coordinate = workArea.centerCoordinate
+        self.title = workArea.servicePackage.rawValue
+        self.subtitle = String(format: "%.1f acres", workArea.area)
+    }
+}
+
 class MainMapViewController: UIViewController {
     
     // MARK: - UI Elements
@@ -47,11 +169,17 @@ class MainMapViewController: UIViewController {
     private var drawingMarkers: [MKPointAnnotation] = []
     private var currentPolygon: MKPolygon?
     private var workZonePolygons: [MKPolygon] = []
+    private var workAreas: [WorkArea] = []
+    private var workAreaLabels: [WorkAreaLabel] = []
+    private var currentServicePackage: ServicePackage = .medium
     
-    // MARK: - Property Line Properties (ALWAYS ON)
+    // MARK: - Property Line Properties
     private var propertyLinePolygons: [MKPolygon] = []
     private var propertyOwnerAnnotations: [MKPointAnnotation] = []
     private var lastPropertyLoadRegion: MKCoordinateRegion?
+    private var showPropertyLines: Bool = false
+    private var safetyBufferOverlays: [MKCircle] = []
+    private var showSafetyBuffers: Bool = false
     
     // MARK: - Measuring Properties
     private var measuringMarkers: [MKPointAnnotation] = []
@@ -527,79 +655,51 @@ class MainMapViewController: UIViewController {
         toolbar?.removeFromSuperview()
         toolbar = nil
         
-        toolbar = UIToolbar()
-        toolbar.translatesAutoresizingMaskIntoConstraints = false
-        toolbar.backgroundColor = TreeShopTheme.cardBackground
-        TreeShopTheme.applyToolbarTheme(to: toolbar)
+        // Create simple view container instead of UIToolbar to avoid constraints
+        let toolbarContainer = UIView()
+        toolbarContainer.translatesAutoresizingMaskIntoConstraints = false
+        toolbarContainer.backgroundColor = TreeShopTheme.cardBackground
+        toolbarContainer.layer.cornerRadius = TreeShopTheme.cornerRadius
         
-        let drawBtn = UIBarButtonItem(
-            image: UIImage(systemName: "pencil.tip.crop.circle"),
-            style: .plain, 
-            target: self, 
-            action: #selector(toggleDrawingMode)
-        )
+        // Create buttons directly
+        let drawBtn = UIButton(type: .system)
+        drawBtn.translatesAutoresizingMaskIntoConstraints = false
+        drawBtn.setImage(UIImage(systemName: "pencil.tip.crop.circle"), for: .normal)
+        drawBtn.tintColor = TreeShopTheme.primaryGreen
+        drawBtn.addTarget(self, action: #selector(toggleDrawingMode), for: .touchUpInside)
         
-        let moreBtn = UIBarButtonItem(
-            image: UIImage(systemName: "ellipsis.circle"),
-            style: .plain,
-            target: self,
-            action: #selector(showMoreMenu)
-        )
+        let moreBtn = UIButton(type: .system)
+        moreBtn.translatesAutoresizingMaskIntoConstraints = false
+        moreBtn.setImage(UIImage(systemName: "ellipsis.circle"), for: .normal)
+        moreBtn.tintColor = TreeShopTheme.primaryGreen
+        moreBtn.addTarget(self, action: #selector(showMoreMenu), for: .touchUpInside)
         
-        let flexSpace = UIBarButtonItem(barButtonSystemItem: .flexibleSpace, target: nil, action: nil)
-        
-        // Simplified - just set items without complex constraints
-        toolbar.items = [flexSpace, drawBtn, flexSpace, moreBtn, flexSpace]
-        
-        view.addSubview(toolbar)
-        view.bringSubviewToFront(toolbar)
+        toolbarContainer.addSubview(drawBtn)
+        toolbarContainer.addSubview(moreBtn)
+        view.addSubview(toolbarContainer)
         
         NSLayoutConstraint.activate([
-            toolbar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            toolbar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            toolbar.bottomAnchor.constraint(equalTo: bottomToolsView.topAnchor, constant: -8),
-            toolbar.heightAnchor.constraint(equalToConstant: 44)
+            toolbarContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+            toolbarContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            toolbarContainer.bottomAnchor.constraint(equalTo: bottomToolsView.topAnchor, constant: -8),
+            toolbarContainer.heightAnchor.constraint(equalToConstant: 44),
+            
+            drawBtn.leadingAnchor.constraint(equalTo: toolbarContainer.leadingAnchor, constant: 20),
+            drawBtn.centerYAnchor.constraint(equalTo: toolbarContainer.centerYAnchor),
+            drawBtn.widthAnchor.constraint(equalToConstant: 44),
+            drawBtn.heightAnchor.constraint(equalToConstant: 44),
+            
+            moreBtn.trailingAnchor.constraint(equalTo: toolbarContainer.trailingAnchor, constant: -20),
+            moreBtn.centerYAnchor.constraint(equalTo: toolbarContainer.centerYAnchor),
+            moreBtn.widthAnchor.constraint(equalToConstant: 44),
+            moreBtn.heightAnchor.constraint(equalToConstant: 44)
         ])
     }
     
     private func updateToolbarForMode(_ mode: AppMode) {
-        let drawBtn = UIBarButtonItem(
-            image: UIImage(systemName: "pencil.tip.crop.circle"),
-            style: .plain,
-            target: self,
-            action: #selector(toggleDrawingMode)
-        )
-        
-        let moreBtn = UIBarButtonItem(
-            image: UIImage(systemName: "ellipsis.circle"),
-            style: .plain,
-            target: self,
-            action: #selector(showMoreMenu)
-        )
-        
-        let flexSpace = UIBarButtonItem(barButtonSystemItem: .flexibleSpace, target: nil, action: nil)
-        
-        if mode == .normal {
-            // Normal mode: Just Draw and More
-            toolbar.items = [flexSpace, drawBtn, flexSpace, moreBtn, flexSpace]
-        } else {
-            // Drawing mode: Add Clear and Undo buttons
-            let clearBtn = UIBarButtonItem(
-                image: UIImage(systemName: "trash"),
-                style: .plain,
-                target: self,
-                action: #selector(clearCurrentMode)
-            )
-            
-            let undoBtn = UIBarButtonItem(
-                image: UIImage(systemName: "arrow.uturn.backward"),
-                style: .plain,
-                target: self,
-                action: #selector(undoLastPoint)
-            )
-            
-            toolbar.items = [drawBtn, flexSpace, undoBtn, flexSpace, clearBtn, flexSpace, moreBtn]
-        }
+        // Toolbar is now using simple button approach, no UIBarButtonItems needed
+        // Buttons are static and don't need mode-specific updates
+        return
     }
     
     private func setupManagers() {
@@ -755,7 +855,7 @@ class MainMapViewController: UIViewController {
         // Create new polygon
         let coordinates = drawingMarkers.map { $0.coordinate }
         currentPolygon = MKPolygon(coordinates: coordinates, count: coordinates.count)
-        // currentPolygon?.title = currentServicePackage.rawValue  // Removed service package
+        currentPolygon?.title = currentServicePackage.rawValue // Service package for rendering
         
         if let polygon = currentPolygon {
             mapView.addOverlay(polygon)
@@ -800,14 +900,28 @@ class MainMapViewController: UIViewController {
             return
         }
         
+        // Create work area with current service package
+        let workArea = WorkArea(polygon: polygon, servicePackage: currentServicePackage)
+        
         // Save the drawing permanently
         saveDrawingAsMeasurement(polygon: polygon)
         
-        // Keep the polygon on map but clear drawing state
+        // Add to work areas and keep polygon on map
+        workAreas.append(workArea)
         workZonePolygons.append(polygon)
+        
+        // Add package label annotation
+        let label = WorkAreaLabel(workArea: workArea)
+        workAreaLabels.append(label)
+        mapView.addAnnotation(label)
+        
+        // Clear drawing state
         mapView.removeAnnotations(drawingMarkers)
         drawingMarkers.removeAll()
         currentPolygon = nil
+        
+        // Show completion info
+        showWorkAreaCompletionInfo(workArea)
         
         // Update UI
         areaLabel.text = "0.00 acres"
@@ -1120,8 +1234,8 @@ class MainMapViewController: UIViewController {
     
     // private func loadPropertyData(_ property: Property) {
     //     // Load work zones
-    //     if let workZones = property.workZones as? Set<WorkZone> {
-    //         for zone in workZones {
+    //     if let workAreas = property.workAreas as? Set<WorkZone> {
+    //         for zone in workAreas {
     //             if let polygonData = zone.polygonData,
     //                let polygon = (try? NSKeyedUnarchiver(forReadingFrom: polygonData))?.decodeObject(forKey: NSKeyedArchiveRootObjectKey) as? MKPolygon {
     //                 polygon.title = zone.servicePackage
@@ -1153,7 +1267,7 @@ class MainMapViewController: UIViewController {
     //     
     //     let context = appDelegate.persistentContainer.viewContext
     //     
-    //     let workZone = WorkZone(context: context)
+    //     let workArea = WorkZone(context: context)
     //     workZone.id = UUID()
     //     workZone.servicePackage = currentServicePackage.rawValue
     //     workZone.acreage = calculatePolygonArea()
@@ -1374,7 +1488,7 @@ class MainMapViewController: UIViewController {
     private func showPropertyDetails(for polygon: MKPolygon) {
         // This is a real Regrid property - get detailed info from backend
         let center = calculatePolygonCenterFromMKPolygon(polygon)
-        let urlString = "http://localhost:3003/v1/parcels/search?app_token=treeshop_app_\(UIDevice.current.identifierForVendor?.uuidString ?? "unknown")&lat=\(center.latitude)&lon=\(center.longitude)&radius=50&limit=1"
+        let urlString = "http://localhost:3003/v1/parcels/search?app_token=treeshop_app_\(UIDevice.current.identifierForVendor?.uuidString ?? "unknown")&lat=\(center.latitude)&lon=\(center.longitude)&radius=10&limit=1"
         
         guard let url = URL(string: urlString) else { return }
         
@@ -1464,7 +1578,13 @@ class MainMapViewController: UIViewController {
     }
     
     private func showWorkAreaDetails(for polygon: MKPolygon) {
-        // This is a user-drawn work area
+        // Check if this is a new WorkArea with service package info
+        if let workArea = workAreas.first(where: { $0.polygon === polygon }) {
+            showWorkAreaDetailsDialog(workArea)
+            return
+        }
+        
+        // Fallback for legacy work areas without service package info
         let coordinates = Array(UnsafeBufferPointer(start: polygon.points(), count: polygon.pointCount))
         var area = 0.0
         
@@ -1755,58 +1875,25 @@ class MainMapViewController: UIViewController {
     @objc private func showMoreMenu() {
         let alertController = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
         
-        // Property lines are always-on for contractor safety
-        // No toggle needed - critical for liability protection
-        
-        // History action
-        alertController.addAction(UIAlertAction(title: "View History", style: .default) { [weak self] _ in
-            self?.showMeasurementHistory()
+        // Property Data toggle
+        alertController.addAction(UIAlertAction(title: showPropertyLines ? "🗺️ Hide Property Data" : "🗺️ Show Property Data", style: .default) { [weak self] _ in
+            self?.togglePropertyData()
         })
         
-        // Save action (only show when drawing/measuring)
-        if currentMode != .normal {
-            alertController.addAction(UIAlertAction(title: "Save Current", style: .default) { [weak self] _ in
-                self?.saveMeasurement()
-            })
-            
-            // Undo action (only show when there are points to undo)
-            let markers = currentMode == .drawing ? drawingMarkers : measuringMarkers
-            if !undoStack.isEmpty && markers.count > 1 {
-                alertController.addAction(UIAlertAction(title: "Undo Last Point", style: .default) { [weak self] _ in
-                    self?.undoLastPoint()
-                })
-            }
-            
-            // Clear action (only show when drawing/measuring)
-            alertController.addAction(UIAlertAction(title: "Clear All", style: .destructive) { [weak self] _ in
-                self?.clearCurrentMode()
+        // Service package selector (only show when drawing)
+        if currentMode == .drawing {
+            let packageText = "📦 Package: \(currentServicePackage.rawValue)"
+            alertController.addAction(UIAlertAction(title: packageText, style: .default) { [weak self] _ in
+                self?.showServicePackageSelector()
             })
         }
         
-        // Critical contractor tools
-        alertController.addAction(UIAlertAction(title: "📏 Distance to Property Line", style: .default) { [weak self] _ in
-            self?.measureDistanceToNearestBoundary()
-        })
-        
-        // Always available actions
-        alertController.addAction(UIAlertAction(title: "Units & Settings", style: .default) { [weak self] _ in
-            self?.showUnitsToggle()
-        })
-        
-        alertController.addAction(UIAlertAction(title: "Focus Search", style: .default) { [weak self] _ in
-            self?.focusOnSearchBar()
-        })
-        
-        alertController.addAction(UIAlertAction(title: "About", style: .default) { [weak self] _ in
-            self?.showAbout()
+        // Safety zones toggle
+        alertController.addAction(UIAlertAction(title: showSafetyBuffers ? "🛡️ Hide Safety Zones" : "🛡️ Show Safety Zones", style: .default) { [weak self] _ in
+            self?.toggleSafetyBuffers()
         })
         
         alertController.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        
-        // For iPad support
-        if let popover = alertController.popoverPresentationController {
-            popover.barButtonItem = toolbar.items?.last // More button
-        }
         
         present(alertController, animated: true)
     }
@@ -1916,9 +2003,11 @@ class MainMapViewController: UIViewController {
         
         // Calculate zoom level from map region
         let zoomLevel = getZoomLevel(from: mapView.region)
+        print("Current zoom level: \(zoomLevel)")
         
-        // Show property lines at zoom 16+ (working detail level)
-        if zoomLevel >= 16.0 {
+        // Show property lines at zoom 15+ (working detail level)
+        if zoomLevel >= 15.0 {
+            print("Zoom level sufficient for property lines, attempting to load...")
             // Don't reload if we've already loaded this region recently
             if let lastRegion = lastPropertyLoadRegion {
                 let centerDistance = abs(lastRegion.center.latitude - mapView.region.center.latitude) + 
@@ -1931,9 +2020,11 @@ class MainMapViewController: UIViewController {
             lastPropertyLoadRegion = mapView.region
             loadPropertyLinesInCurrentView()
         } else {
-            // Too zoomed out - clear property lines for performance
+            // Too zoomed out - clear property lines for performance  
             clearPropertyLines()
         }
+        
+        // Load real property lines only - no fake demo shit
     }
     
     private func getZoomLevel(from region: MKCoordinateRegion) -> Double {
@@ -1946,22 +2037,55 @@ class MainMapViewController: UIViewController {
         // Clear existing property lines first
         clearPropertyLines()
         
+        // CRITICAL: Only load parcels at zoom level 15+ to prevent API abuse
+        let currentZoom = log2(360 * (Double(mapView.frame.size.width/256) / mapView.region.span.longitudeDelta)) + 1
+        
+        if currentZoom < 15.0 {
+            showPropertyLineStatus("Zoom in to see property lines (zoom level \(Int(currentZoom))/15)")
+            return
+        }
+        
+        // Check if property data is enabled
+        if !showPropertyLines {
+            showPropertyLineStatus("Property data disabled - tap ⋯ to enable")
+            return
+        }
+        
+        // Show loading indicator
+        showPropertyLineStatus("Loading property boundaries...")
+        
         let center = mapView.region.center
         
-        // Call TreeShop backend to get real Regrid parcel data  
-        let urlString = "http://localhost:3003/v1/parcels/search?app_token=treeshop_app_\(UIDevice.current.identifierForVendor?.uuidString ?? "unknown")&lat=\(center.latitude)&lon=\(center.longitude)&radius=500&limit=20"
+        // MUCH smaller radius and limit to prevent API abuse - was 500m/20 parcels!
+        let urlString = "http://localhost:3003/v1/parcels/search?app_token=treeshop_app_\(UIDevice.current.identifierForVendor?.uuidString ?? "unknown")&lat=\(center.latitude)&lon=\(center.longitude)&radius=50&limit=3"
         
-        guard let url = URL(string: urlString) else { return }
+        guard let url = URL(string: urlString) else { 
+            showPropertyLineStatus("Property line API error")
+            return 
+        }
         
         URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
-            guard let self = self,
-                  let data = data,
-                  error == nil else {
-                print("Property line load error: \(error?.localizedDescription ?? "Unknown")")
-                return
-            }
+            guard let self = self else { return }
             
             DispatchQueue.main.async {
+                if let error = error {
+                    print("Property line load error: \(error.localizedDescription)")
+                    self.showPropertyLineStatus("Property line service unavailable")
+                    return
+                }
+                
+                guard let data = data else {
+                    self.showPropertyLineStatus("No property data received")
+                    return
+                }
+                
+                // Check for 403 error in response
+                if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 403 {
+                    print("Regrid API access limited for this area (trial token)")
+                    self.showPropertyLineStatus("Limited coverage in this area", temporary: true)
+                    return
+                }
+                
                 self.parseAndDisplayRegridGeoJSON(data)
             }
         }.resume()
@@ -1978,6 +2102,20 @@ class MainMapViewController: UIViewController {
             var features: [[String: Any]] = []
             
             if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                // Check for error response first
+                if let error = json["error"] as? [String: Any] {
+                    let errorCode = error["code"] as? String ?? "UNKNOWN"
+                    let errorMessage = error["message"] as? String ?? "Unknown error"
+                    print("API Error: \(errorCode) - \(errorMessage)")
+                    
+                    if errorCode == "PARCEL_SEARCH_FAILED" || errorMessage.contains("403") {
+                        showPropertyLineStatus("Limited coverage in this area", temporary: true)
+                    } else {
+                        showPropertyLineStatus("Property data error", temporary: true)
+                    }
+                    return
+                }
+                
                 // Check for direct FeatureCollection format
                 if json["type"] as? String == "FeatureCollection",
                    let directFeatures = json["features"] as? [[String: Any]] {
@@ -2048,10 +2186,16 @@ class MainMapViewController: UIViewController {
                 }
             }
             
-            print("✅ Loaded \(self.propertyLinePolygons.count) actual property boundaries from Regrid")
+            if self.propertyLinePolygons.count > 0 {
+                print("✅ Loaded \(self.propertyLinePolygons.count) actual property boundaries from Regrid")
+                self.showPropertyLineStatus("Loaded \(self.propertyLinePolygons.count) property boundaries", temporary: true)
+            } else {
+                self.showPropertyLineStatus("No property boundaries in this area", temporary: true)
+            }
             
         } catch {
             print("❌ Failed to parse Regrid response: \(error)")
+            self.showPropertyLineStatus("Property data parsing error", temporary: true)
         }
     }
     
@@ -2076,7 +2220,41 @@ class MainMapViewController: UIViewController {
         mapView.removeAnnotations(propertyOwnerAnnotations)
         propertyOwnerAnnotations.removeAll()
         
+        // Remove safety buffers
+        clearSafetyBuffers()
+        
         lastPropertyLoadRegion = nil
+    }
+    
+    
+    private func showPropertyLineStatus(_ message: String, temporary: Bool = false) {
+        // Update the current mode label to show property line status
+        DispatchQueue.main.async {
+            self.currentModeLabel.text = message
+            self.currentModeLabel.textColor = temporary ? TreeShopTheme.accentGreen : TreeShopTheme.secondaryText
+            
+            // If temporary, revert after 3 seconds
+            if temporary {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                    // Only revert if still showing this message
+                    if self.currentModeLabel.text == message {
+                        self.currentModeLabel.text = self.getCurrentModeText()
+                        self.currentModeLabel.textColor = TreeShopTheme.primaryText
+                    }
+                }
+            }
+        }
+    }
+    
+    private func getCurrentModeText() -> String {
+        switch currentMode {
+        case .normal:
+            return "Ready"
+        case .drawing:
+            return "Drawing Mode"
+        case .measuring:
+            return "Measuring"
+        }
     }
     
     // MARK: - Boundary Distance Measurement (Critical for Contractor Safety)
@@ -2127,7 +2305,7 @@ class MainMapViewController: UIViewController {
     }
     
     private func distanceToPolygonBoundary(from coordinate: CLLocationCoordinate2D, to polygon: MKPolygon) -> Double {
-        let userLocation = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
+        _ = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
         var minDistance: Double = Double.infinity
         
         // Get polygon points
@@ -2161,6 +2339,290 @@ class MainMapViewController: UIViewController {
         let distToEnd = pointLoc.distance(from: endLoc)
         
         return min(distToStart, distToEnd)
+    }
+    
+    // MARK: - Safety Buffer Zones (Contractor Workflow Enhancement)
+    
+    private func toggleSafetyBuffers() {
+        showSafetyBuffers.toggle()
+        
+        if showSafetyBuffers {
+            showSafetyBuffersAroundProperties()
+        } else {
+            clearSafetyBuffers()
+        }
+    }
+    
+    private func togglePropertyData() {
+        showPropertyLines.toggle()
+        
+        if showPropertyLines {
+            // Force reload property lines if zoom level allows
+            let zoomLevel = getZoomLevel(from: mapView.region)
+            if zoomLevel >= 15.0 {
+                loadPropertyLinesInCurrentView()
+            }
+        } else {
+            clearPropertyLines()
+            showPropertyLineStatus("Property data disabled")
+        }
+    }
+    
+    private func showSafetyBuffersAroundProperties() {
+        clearSafetyBuffers()
+        
+        guard !propertyLinePolygons.isEmpty else {
+            showAlert(title: "No Property Lines", message: "Zoom in closer to load property boundaries first.")
+            return
+        }
+        
+        for polygon in propertyLinePolygons {
+            // Get center of property
+            let center = calculatePolygonCenterFromMKPolygon(polygon)
+            
+            // Create safety buffer zones at different distances
+            let safetyDistances: [CLLocationDistance] = [7.62, 15.24, 22.86] // 25ft, 50ft, 75ft in meters
+            
+            for (_, distance) in safetyDistances.enumerated() {
+                let circle = MKCircle(center: center, radius: distance)
+                circle.title = "Safety Buffer \(Int((distance * 3.28084).rounded())) ft"
+                safetyBufferOverlays.append(circle)
+                mapView.addOverlay(circle)
+            }
+        }
+        
+        showPropertyLineStatus("Safety zones active", temporary: true)
+    }
+    
+    private func clearSafetyBuffers() {
+        for overlay in safetyBufferOverlays {
+            mapView.removeOverlay(overlay)
+        }
+        safetyBufferOverlays.removeAll()
+    }
+    
+    private func verifyCurrentProperty() {
+        guard let userLocation = mapView.userLocation.location else {
+            showAlert(title: "Location Required", message: "Enable GPS to verify your current property location.")
+            return
+        }
+        
+        guard !propertyLinePolygons.isEmpty else {
+            showAlert(title: "No Property Data", message: "Zoom in closer to load property boundaries first.")
+            return
+        }
+        
+        let userCoordinate = userLocation.coordinate
+        
+        // Check if user is inside any property
+        for polygon in propertyLinePolygons {
+            if isCoordinateInsidePolygon(userCoordinate, polygon: polygon) {
+                let ownerInfo = polygon.subtitle ?? "Unknown Owner"
+                let propertyName = polygon.title ?? "Property"
+                
+                let message = """
+                ✅ VERIFIED: You are on property
+                
+                📍 Property: \(propertyName)
+                👤 Owner: \(ownerInfo)
+                
+                ⚠️ Contractor Reminder:
+                • Confirm work authorization
+                • Check permit requirements
+                • Mark equipment boundaries
+                """
+                
+                showAlert(title: "Property Verification", message: message)
+                return
+            }
+        }
+        
+        // If not inside any property, find nearest one
+        var nearestDistance: Double = Double.infinity
+        var nearestProperty: String = "Unknown"
+        var nearestOwner: String = "Unknown"
+        
+        for polygon in propertyLinePolygons {
+            let distance = distanceToPolygonBoundary(from: userCoordinate, to: polygon)
+            if distance < nearestDistance {
+                nearestDistance = distance
+                nearestProperty = polygon.title ?? "Property"
+                nearestOwner = polygon.subtitle ?? "Unknown Owner"
+            }
+        }
+        
+        let distanceInFeet = nearestDistance * 3.28084
+        let message = """
+        🚨 NOT ON PROPERTY
+        
+        You are \(String(format: "%.0f", distanceInFeet)) feet from:
+        📍 \(nearestProperty)
+        👤 \(nearestOwner)
+        
+        ⚠️ Action Required:
+        • Move to authorized work area
+        • Verify property boundaries
+        • Check GPS accuracy
+        """
+        
+        showAlert(title: "Property Verification", message: message)
+    }
+    
+    private func isCoordinateInsidePolygon(_ coordinate: CLLocationCoordinate2D, polygon: MKPolygon) -> Bool {
+        let point = MKMapPoint(coordinate)
+        let mapRect = polygon.boundingMapRect
+        
+        if !mapRect.contains(point) {
+            return false
+        }
+        
+        // Use MapKit's built-in path containment check
+        let polygonPath = UIBezierPath()
+        let points = Array(UnsafeBufferPointer(start: polygon.points(), count: polygon.pointCount))
+        
+        if points.isEmpty { return false }
+        
+        let firstPoint = MKMapPoint(points[0].coordinate)
+        polygonPath.move(to: CGPoint(x: firstPoint.x, y: firstPoint.y))
+        
+        for i in 1..<points.count {
+            let mapPoint = MKMapPoint(points[i].coordinate)
+            polygonPath.addLine(to: CGPoint(x: mapPoint.x, y: mapPoint.y))
+        }
+        
+        polygonPath.close()
+        
+        return polygonPath.contains(CGPoint(x: point.x, y: point.y))
+    }
+    
+    private func navigateToDallasForTesting() {
+        // Navigate to Dallas where your backend has confirmed coverage
+        let dallasCoordinate = CLLocationCoordinate2D(latitude: 32.7767, longitude: -96.7970)
+        let region = MKCoordinateRegion(center: dallasCoordinate, latitudinalMeters: 1000, longitudinalMeters: 1000)
+        mapView.setRegion(region, animated: true)
+        
+        showAlert(title: "Navigating to Dallas", message: "Moving to Dallas area where Regrid coverage is confirmed. Property lines should appear at zoom 15+.")
+    }
+    
+    // MARK: - Service Package Management
+    
+    private func showServicePackageSelector() {
+        let alert = UIAlertController(title: "Select Service Package", message: "Choose the mulching service for this work area:", preferredStyle: .actionSheet)
+        
+        for package in ServicePackage.allCases {
+            let title = "\(package.rawValue) - \(package.description)"
+            let subtitle = "$\(Int(package.pricePerAcre))/acre • \(package.estimatedHoursPerAcre)h/acre"
+            let action = UIAlertAction(title: "\(title)\n\(subtitle)", style: .default) { [weak self] _ in
+                self?.currentServicePackage = package
+                self?.updateCurrentPolygonColor()
+            }
+            
+            if package == currentServicePackage {
+                action.setValue(true, forKey: "checked")
+            }
+            
+            alert.addAction(action)
+        }
+        
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        
+        if let popover = alert.popoverPresentationController {
+            popover.sourceView = view
+            popover.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 0, height: 0)
+        }
+        
+        present(alert, animated: true)
+    }
+    
+    private func updateCurrentPolygonColor() {
+        // Update the current drawing polygon overlay color
+        if let polygon = currentPolygon {
+            mapView.removeOverlay(polygon)
+            mapView.addOverlay(polygon)
+        }
+    }
+    
+    private func showWorkAreaCompletionInfo(_ workArea: WorkArea) {
+        let alert = UIAlertController(
+            title: "Work Area Created", 
+            message: workArea.detailedInfo,
+            preferredStyle: .alert
+        )
+        
+        alert.addAction(UIAlertAction(title: "View Details", style: .default) { [weak self] _ in
+            self?.showWorkAreaDetailsDialog(workArea)
+        })
+        
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        
+        present(alert, animated: true)
+    }
+    
+    private func showWorkAreaDetailsDialog(_ workArea: WorkArea) {
+        let alert = UIAlertController(
+            title: workArea.name,
+            message: workArea.detailedInfo,
+            preferredStyle: .alert
+        )
+        
+        alert.addAction(UIAlertAction(title: "Edit Name", style: .default) { [weak self] _ in
+            self?.editWorkAreaName(workArea)
+        })
+        
+        alert.addAction(UIAlertAction(title: "Delete Area", style: .destructive) { [weak self] _ in
+            self?.deleteWorkArea(workArea)
+        })
+        
+        alert.addAction(UIAlertAction(title: "Done", style: .default))
+        
+        present(alert, animated: true)
+    }
+    
+    private func editWorkAreaName(_ workArea: WorkArea) {
+        let alert = UIAlertController(title: "Edit Work Area Name", message: nil, preferredStyle: .alert)
+        
+        alert.addTextField { textField in
+            textField.text = workArea.name
+            textField.placeholder = "Enter area name"
+        }
+        
+        alert.addAction(UIAlertAction(title: "Save", style: .default) { _ in
+            if let newName = alert.textFields?.first?.text, !newName.isEmpty {
+                workArea.name = newName
+                // Update the label annotation
+                if let labelIndex = self.workAreaLabels.firstIndex(where: { $0.workArea === workArea }) {
+                    let label = self.workAreaLabels[labelIndex]
+                    self.mapView.removeAnnotation(label)
+                    let newLabel = WorkAreaLabel(workArea: workArea)
+                    self.workAreaLabels[labelIndex] = newLabel
+                    self.mapView.addAnnotation(newLabel)
+                }
+            }
+        })
+        
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        
+        present(alert, animated: true)
+    }
+    
+    private func deleteWorkArea(_ workArea: WorkArea) {
+        // Remove from map
+        mapView.removeOverlay(workArea.polygon)
+        
+        // Remove label
+        if let labelIndex = workAreaLabels.firstIndex(where: { $0.workArea === workArea }) {
+            mapView.removeAnnotation(workAreaLabels[labelIndex])
+            workAreaLabels.remove(at: labelIndex)
+        }
+        
+        // Remove from arrays
+        if let polygonIndex = workZonePolygons.firstIndex(of: workArea.polygon) {
+            workZonePolygons.remove(at: polygonIndex)
+        }
+        
+        if let zoneIndex = workAreas.firstIndex(where: { $0 === workArea }) {
+            workAreas.remove(at: zoneIndex)
+        }
     }
 }
 
@@ -2303,53 +2765,44 @@ extension MainMapViewController: MKMapViewDelegate {
         if let polygon = overlay as? MKPolygon {
             let renderer = MKPolygonRenderer(polygon: polygon)
             
-            // Check if this is a property line polygon
-            if propertyLinePolygons.contains(polygon) {
-                // PROPERTY LINES ONLY - NO FILL (critical for forestry work)
-                let zoomLevel = getZoomLevel(from: mapView.region)
-                
-                // CRITICAL: NO FILL - must see satellite imagery for trees/terrain
+            // FORCE CHECK: Property lines ALWAYS get yellow, no fill
+            let isPropertyLine = propertyLinePolygons.contains(polygon)
+            let hasRegridTitle = polygon.title?.contains("Young St") == true || polygon.title?.contains("DALLAS") == true
+            
+            if isPropertyLine || hasRegridTitle {
                 renderer.fillColor = UIColor.clear
-                
-                // BRIGHT YELLOW surveyor lines - highly visible against all backgrounds
-                renderer.strokeColor = UIColor.yellow
-                renderer.alpha = 1.0 // Fully opaque line
-                
-                // Progressive line width for zoom levels 14-22
-                if zoomLevel >= 18.0 {
-                    renderer.lineWidth = 3.0 // Detail work zoom
-                } else if zoomLevel >= 16.0 {
-                    renderer.lineWidth = 2.5 // Working zoom  
-                } else if zoomLevel >= 14.0 {
-                    renderer.lineWidth = 1.5 // First visibility
-                } else {
-                    renderer.lineWidth = 1.0 // Fallback
-                }
-                
-                // Clean surveyor lines
+                renderer.strokeColor = UIColor.yellow  
+                renderer.lineWidth = 0.5
+                renderer.alpha = 1.0
+                return renderer
+            }
+            // Drawing polygons - service package colors
+            else if currentMode == .drawing && polygon === currentPolygon {
+                renderer.fillColor = currentServicePackage.color
+                renderer.strokeColor = currentServicePackage.color.withAlphaComponent(1.0)
+                renderer.lineWidth = 3
                 renderer.lineDashPattern = nil
                 renderer.lineJoin = .round
                 renderer.lineCap = .round
-            } else {
-                // Check if this is a work area polygon vs property line
-                if workZonePolygons.contains(polygon) {
-                    // Work area polygon styling - bold and prominent  
-                    renderer.fillColor = TreeShopTheme.primaryGreen.withAlphaComponent(0.4)
-                    renderer.strokeColor = TreeShopTheme.primaryGreen
-                    renderer.lineWidth = 3
-                    renderer.lineDashPattern = nil // Solid line
-                    renderer.lineJoin = .round
-                    renderer.lineCap = .round
-                } else {
-                    // Unknown polygon - treat as property line with NO FILL
-                    renderer.fillColor = UIColor.clear
-                    renderer.strokeColor = UIColor.yellow
-                    renderer.lineWidth = 2.0
-                    renderer.alpha = 1.0
-                    renderer.lineDashPattern = nil
-                    renderer.lineJoin = .round
-                    renderer.lineCap = .round
-                }
+                print("🎨 DRAWING: \(currentServicePackage.rawValue) - \(currentServicePackage.color)")
+            }
+            // Saved work areas - service package colors
+            else if let workArea = workAreas.first(where: { $0.polygon === polygon }) {
+                renderer.fillColor = workArea.color
+                renderer.strokeColor = workArea.strokeColor
+                renderer.lineWidth = 3
+                renderer.lineDashPattern = nil
+                renderer.lineJoin = .round
+                renderer.lineCap = .round
+                print("💼 SAVED: \(workArea.servicePackage.rawValue)")
+            }
+            // Default fallback - PROPERTY LINES (since they're not being caught above)
+            else {
+                renderer.fillColor = UIColor.clear
+                renderer.strokeColor = UIColor.yellow
+                renderer.lineWidth = 0.5
+                renderer.alpha = 1.0
+                print("🟡 DEFAULT PROPERTY LINE - YELLOW NO FILL")
             }
             
             return renderer
@@ -2364,6 +2817,35 @@ extension MainMapViewController: MKMapViewDelegate {
             renderer.lineCap = .round
             
             return renderer
+        }
+        
+        if let circle = overlay as? MKCircle {
+            // Safety buffer zone rendering
+            if safetyBufferOverlays.contains(circle) {
+                let renderer = MKCircleRenderer(circle: circle)
+                
+                // Different colors for different safety distances
+                let radiusInFeet = circle.radius * 3.28084
+                if radiusInFeet <= 25 {
+                    // 25ft - Critical safety zone (red)
+                    renderer.strokeColor = UIColor.systemRed.withAlphaComponent(0.8)
+                    renderer.fillColor = UIColor.systemRed.withAlphaComponent(0.15)
+                    renderer.lineWidth = 2.0
+                } else if radiusInFeet <= 50 {
+                    // 50ft - Caution zone (orange) 
+                    renderer.strokeColor = UIColor.systemOrange.withAlphaComponent(0.7)
+                    renderer.fillColor = UIColor.systemOrange.withAlphaComponent(0.10)
+                    renderer.lineWidth = 1.5
+                } else {
+                    // 75ft - Awareness zone (yellow)
+                    renderer.strokeColor = UIColor.systemYellow.withAlphaComponent(0.6)
+                    renderer.fillColor = UIColor.systemYellow.withAlphaComponent(0.08)
+                    renderer.lineWidth = 1.0
+                }
+                
+                renderer.lineDashPattern = [5, 3] // Dashed for safety zones
+                return renderer
+            }
         }
         
         return MKOverlayRenderer(overlay: overlay)
@@ -2512,6 +2994,66 @@ extension MainMapViewController: MKMapViewDelegate {
         //     return annotationView
         // }
         
+        // Check if it's a work zone label
+        if let workAreaLabel = annotation as? WorkAreaLabel {
+            let identifier = "WorkAreaLabel"
+            var annotationView = mapView.dequeueReusableAnnotationView(withIdentifier: identifier)
+            
+            if annotationView == nil {
+                annotationView = MKAnnotationView(annotation: annotation, reuseIdentifier: identifier)
+                
+                // Create custom label view
+                let containerView = UIView()
+                containerView.backgroundColor = workAreaLabel.workArea.strokeColor.withAlphaComponent(0.9)
+                containerView.layer.cornerRadius = 8
+                containerView.layer.borderWidth = 1
+                containerView.layer.borderColor = workAreaLabel.workArea.strokeColor.cgColor
+                
+                let titleLabel = UILabel()
+                titleLabel.text = workAreaLabel.workArea.servicePackage.rawValue
+                titleLabel.font = UIFont.boldSystemFont(ofSize: 12)
+                titleLabel.textColor = .white
+                titleLabel.textAlignment = .center
+                
+                let areaLabel = UILabel()
+                areaLabel.text = String(format: "%.1f ac", workAreaLabel.workArea.area)
+                areaLabel.font = UIFont.systemFont(ofSize: 10)
+                areaLabel.textColor = .white
+                areaLabel.textAlignment = .center
+                
+                // Layout labels
+                titleLabel.translatesAutoresizingMaskIntoConstraints = false
+                areaLabel.translatesAutoresizingMaskIntoConstraints = false
+                containerView.addSubview(titleLabel)
+                containerView.addSubview(areaLabel)
+                
+                NSLayoutConstraint.activate([
+                    titleLabel.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 4),
+                    titleLabel.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 8),
+                    titleLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -8),
+                    
+                    areaLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2),
+                    areaLabel.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 8),
+                    areaLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -8),
+                    areaLabel.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -4)
+                ])
+                
+                // Size the container
+                containerView.sizeToFit()
+                let size = containerView.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
+                containerView.frame = CGRect(origin: .zero, size: size)
+                
+                annotationView?.addSubview(containerView)
+                annotationView?.frame = containerView.frame
+                annotationView?.canShowCallout = true
+                annotationView?.centerOffset = CGPoint(x: 0, y: -size.height/2)
+            } else {
+                annotationView?.annotation = annotation
+            }
+            
+            return annotationView
+        }
+        
         return nil
     }
     
@@ -2545,9 +3087,8 @@ extension MainMapViewController: UIGestureRecognizerDelegate {
     }
     
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-        // Don't handle touches on the search container or toolbar
+        // Don't handle touches on the search container or bottom tools
         if touch.view?.isDescendant(of: searchContainerView) == true ||
-           touch.view?.isDescendant(of: toolbar) == true ||
            touch.view?.isDescendant(of: bottomToolsView) == true {
             return false
         }

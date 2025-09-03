@@ -118,7 +118,7 @@ class RegridParcelManager {
     static let shared = RegridParcelManager()
     
     // TreeShop backend proxy - keeps Regrid token secure on server
-    private let baseURL = "http://localhost:3003/v1/parcels"  // Development - update for production
+    private let baseURL = "http://localhost:3003/v1/parcels"
     private let session = URLSession.shared
     private var appToken: String? // TreeShop app authentication token
     
@@ -213,7 +213,7 @@ class RegridParcelManager {
     func searchParcels(withinPolygon polygon: MKPolygon,
                       completion: @escaping (Result<[RegridParcel], RegridAPIError>) -> Void) {
         
-        guard let token = apiToken else {
+        guard let token = appToken else {
             completion(.failure(.noAPIToken))
             return
         }
@@ -245,7 +245,7 @@ class RegridParcelManager {
     func getParcel(byUUID uuid: String,
                   completion: @escaping (Result<RegridParcel, RegridAPIError>) -> Void) {
         
-        guard let token = apiToken else {
+        guard let token = appToken else {
             completion(.failure(.noAPIToken))
             return
         }
@@ -552,7 +552,7 @@ extension RegridParcelManager {
     
     /// Check if API is properly configured
     var isConfigured: Bool {
-        return apiToken != nil && !apiToken!.isEmpty
+        return appToken != nil && !appToken!.isEmpty
     }
     
     /// Get configuration status for UI display
@@ -574,13 +574,13 @@ extension RegridParcelManager {
         
         alert.addTextField { textField in
             textField.placeholder = "Enter Regrid API token"
-            textField.text = self.apiToken
+            textField.text = self.appToken
             textField.isSecureTextEntry = false
         }
         
         alert.addAction(UIAlertAction(title: "Save", style: .default) { _ in
             if let token = alert.textFields?.first?.text, !token.isEmpty {
-                self.setAPIToken(token)
+                self.appToken = token
                 
                 // Test the token
                 self.searchParcels(at: CLLocationCoordinate2D(latitude: 40.7128, longitude: -74.0060)) { result in

@@ -19,15 +19,15 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '10mb' }));
 
-// Rate limiting for parcel API
+// Rate limiting for parcel API - SUPER STRICT to prevent API abuse
 const parcelRateLimit = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 hour
-  max: 100, // 100 requests per hour per IP
+  windowMs: 5 * 60 * 1000, // 5 minutes
+  max: 3, // ONLY 3 requests per 5 minutes - much stricter!  
   message: {
     error: {
       code: 'RATE_LIMIT_EXCEEDED',
-      message: 'Too many parcel requests. Limit: 100 per hour.',
-      retry_after: '1 hour'
+      message: 'Too many parcel requests. Limit: 3 per 5 minutes.',
+      retry_after: '5 minutes'
     }
   },
   standardHeaders: true,
