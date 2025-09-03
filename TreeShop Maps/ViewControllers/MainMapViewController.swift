@@ -15,6 +15,12 @@ class MainMapViewController: UIViewController {
     private var currentModeLabel: UILabel!
     private var areaLabel: UILabel!
     private var perimeterLabel: UILabel!
+    private var zoomControlsView: UIView!
+    private var zoomInButton: UIButton!
+    private var zoomOutButton: UIButton!
+    private var myLocationButton: UIButton!
+    private var screenLockButton: UIButton!
+    private var isScreenLocked: Bool = false
     
     // MARK: - Professional Measurement UI (commented until files added to project)
     // private var gpsAccuracyView: GPSAccuracyIndicatorView!
@@ -41,6 +47,12 @@ class MainMapViewController: UIViewController {
     private var drawingMarkers: [MKPointAnnotation] = []
     private var currentPolygon: MKPolygon?
     private var workZonePolygons: [MKPolygon] = []
+    
+    // MARK: - Property Line Properties
+    private var propertyLinePolygons: [MKPolygon] = []
+    private var propertyOwnerAnnotations: [MKPointAnnotation] = []
+    private var showPropertyLines: Bool = true
+    private var lastPropertyLoadRegion: MKCoordinateRegion?
     
     // MARK: - Measuring Properties
     private var measuringMarkers: [MKPointAnnotation] = []
@@ -109,6 +121,8 @@ class MainMapViewController: UIViewController {
         // Setup UI elements in proper order: map first, then UI on top
         setupMapView()
         setupSearchBar()
+        setupZoomControls()
+        setupMyLocationButton()
         setupBottomToolsView()
         // REMOVE ALL EXISTING TOOLBARS
         view.subviews.forEach { subview in
@@ -117,6 +131,7 @@ class MainMapViewController: UIViewController {
             }
         }
         setupForcedCleanToolbar()
+        setupScreenLockButton()
         setupProfessionalUI()
     }
     
@@ -233,6 +248,177 @@ class MainMapViewController: UIViewController {
         view.bringSubviewToFront(searchContainerView)
     }
     
+    private func setupZoomControls() {
+        // Create zoom controls container
+        zoomControlsView = UIView()
+        zoomControlsView.translatesAutoresizingMaskIntoConstraints = false
+        zoomControlsView.backgroundColor = TreeShopTheme.cardBackground
+        zoomControlsView.layer.cornerRadius = TreeShopTheme.cornerRadius
+        zoomControlsView.layer.shadowColor = UIColor.black.cgColor
+        zoomControlsView.layer.shadowOffset = CGSize(width: 0, height: 2)
+        zoomControlsView.layer.shadowOpacity = 0.3
+        zoomControlsView.layer.shadowRadius = 4
+        view.addSubview(zoomControlsView)
+        
+        // Create zoom in button
+        zoomInButton = UIButton(type: .system)
+        zoomInButton.translatesAutoresizingMaskIntoConstraints = false
+        zoomInButton.setImage(UIImage(systemName: "plus"), for: .normal)
+        zoomInButton.tintColor = TreeShopTheme.primaryGreen
+        zoomInButton.backgroundColor = UIColor.clear
+        zoomInButton.addTarget(self, action: #selector(zoomIn), for: .touchUpInside)
+        zoomControlsView.addSubview(zoomInButton)
+        
+        // Create zoom out button
+        zoomOutButton = UIButton(type: .system)
+        zoomOutButton.translatesAutoresizingMaskIntoConstraints = false
+        zoomOutButton.setImage(UIImage(systemName: "minus"), for: .normal)
+        zoomOutButton.tintColor = TreeShopTheme.primaryGreen
+        zoomOutButton.backgroundColor = UIColor.clear
+        zoomOutButton.addTarget(self, action: #selector(zoomOut), for: .touchUpInside)
+        zoomControlsView.addSubview(zoomOutButton)
+        
+        // Add separator line
+        let separatorLine = UIView()
+        separatorLine.translatesAutoresizingMaskIntoConstraints = false
+        separatorLine.backgroundColor = TreeShopTheme.secondaryText.withAlphaComponent(0.3)
+        zoomControlsView.addSubview(separatorLine)
+        
+        // Layout zoom controls
+        NSLayoutConstraint.activate([
+            // Container positioning - top right
+            zoomControlsView.topAnchor.constraint(equalTo: searchContainerView.bottomAnchor, constant: 16),
+            zoomControlsView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            zoomControlsView.widthAnchor.constraint(equalToConstant: 50),
+            zoomControlsView.heightAnchor.constraint(equalToConstant: 100),
+            
+            // Zoom in button
+            zoomInButton.topAnchor.constraint(equalTo: zoomControlsView.topAnchor, constant: 8),
+            zoomInButton.centerXAnchor.constraint(equalTo: zoomControlsView.centerXAnchor),
+            zoomInButton.widthAnchor.constraint(equalToConstant: 34),
+            zoomInButton.heightAnchor.constraint(equalToConstant: 34),
+            
+            // Separator line
+            separatorLine.topAnchor.constraint(equalTo: zoomInButton.bottomAnchor, constant: 4),
+            separatorLine.centerXAnchor.constraint(equalTo: zoomControlsView.centerXAnchor),
+            separatorLine.widthAnchor.constraint(equalToConstant: 20),
+            separatorLine.heightAnchor.constraint(equalToConstant: 1),
+            
+            // Zoom out button
+            zoomOutButton.topAnchor.constraint(equalTo: separatorLine.bottomAnchor, constant: 4),
+            zoomOutButton.centerXAnchor.constraint(equalTo: zoomControlsView.centerXAnchor),
+            zoomOutButton.widthAnchor.constraint(equalToConstant: 34),
+            zoomOutButton.heightAnchor.constraint(equalToConstant: 34)
+        ])
+        
+        // Bring to front
+        view.bringSubviewToFront(zoomControlsView)
+    }
+    
+    @objc private func zoomIn() {
+        let region = mapView.region
+        let newSpan = MKCoordinateSpan(
+            latitudeDelta: region.span.latitudeDelta * 0.5,
+            longitudeDelta: region.span.longitudeDelta * 0.5
+        )
+        let newRegion = MKCoordinateRegion(center: region.center, span: newSpan)
+        mapView.setRegion(newRegion, animated: true)
+    }
+    
+    @objc private func zoomOut() {
+        let region = mapView.region
+        let newSpan = MKCoordinateSpan(
+            latitudeDelta: region.span.latitudeDelta * 2.0,
+            longitudeDelta: region.span.longitudeDelta * 2.0
+        )
+        let newRegion = MKCoordinateRegion(center: region.center, span: newSpan)
+        mapView.setRegion(newRegion, animated: true)
+    }
+    
+    private func setupMyLocationButton() {
+        myLocationButton = UIButton(type: .system)
+        myLocationButton.translatesAutoresizingMaskIntoConstraints = false
+        myLocationButton.setImage(UIImage(systemName: "location.circle.fill"), for: .normal)
+        myLocationButton.tintColor = TreeShopTheme.primaryGreen
+        myLocationButton.backgroundColor = TreeShopTheme.cardBackground
+        myLocationButton.layer.cornerRadius = 25
+        myLocationButton.layer.shadowColor = UIColor.black.cgColor
+        myLocationButton.layer.shadowOffset = CGSize(width: 0, height: 2)
+        myLocationButton.layer.shadowOpacity = 0.3
+        myLocationButton.layer.shadowRadius = 4
+        myLocationButton.addTarget(self, action: #selector(centerOnMyLocation), for: .touchUpInside)
+        
+        view.addSubview(myLocationButton)
+        view.bringSubviewToFront(myLocationButton)
+        
+        NSLayoutConstraint.activate([
+            myLocationButton.topAnchor.constraint(equalTo: searchContainerView.bottomAnchor, constant: 16),
+            myLocationButton.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+            myLocationButton.widthAnchor.constraint(equalToConstant: 50),
+            myLocationButton.heightAnchor.constraint(equalToConstant: 50)
+        ])
+    }
+    
+    private func setupScreenLockButton() {
+        screenLockButton = UIButton(type: .system)
+        screenLockButton.translatesAutoresizingMaskIntoConstraints = false
+        screenLockButton.setImage(UIImage(systemName: "lock.circle"), for: .normal)
+        screenLockButton.tintColor = TreeShopTheme.secondaryText
+        screenLockButton.backgroundColor = TreeShopTheme.cardBackground.withAlphaComponent(0.9)
+        screenLockButton.layer.cornerRadius = 22
+        screenLockButton.addTarget(self, action: #selector(toggleScreenLock), for: .touchUpInside)
+        
+        view.addSubview(screenLockButton)
+        view.bringSubviewToFront(screenLockButton)
+        
+        NSLayoutConstraint.activate([
+            screenLockButton.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+            screenLockButton.bottomAnchor.constraint(equalTo: bottomToolsView.topAnchor, constant: -60),
+            screenLockButton.widthAnchor.constraint(equalToConstant: 44),
+            screenLockButton.heightAnchor.constraint(equalToConstant: 44)
+        ])
+    }
+    
+    @objc private func centerOnMyLocation() {
+        guard let location = mapView.userLocation.location else {
+            showAlert(title: "Location Not Available", message: "Please enable location services and try again.")
+            return
+        }
+        
+        let region = MKCoordinateRegion(
+            center: location.coordinate,
+            latitudinalMeters: 200,
+            longitudinalMeters: 200
+        )
+        mapView.setRegion(region, animated: true)
+        
+        // Haptic feedback
+        let generator = UIImpactFeedbackGenerator(style: .medium)
+        generator.impactOccurred()
+    }
+    
+    @objc private func toggleScreenLock() {
+        isScreenLocked.toggle()
+        
+        if isScreenLocked {
+            // Enable screen always on
+            UIApplication.shared.isIdleTimerDisabled = true
+            screenLockButton.setImage(UIImage(systemName: "lock.circle.fill"), for: .normal)
+            screenLockButton.tintColor = TreeShopTheme.primaryGreen
+            showAlert(title: "Screen Lock ON", message: "Screen will stay on. Perfect for hands-free GPS tracking!")
+        } else {
+            // Disable screen always on
+            UIApplication.shared.isIdleTimerDisabled = false
+            screenLockButton.setImage(UIImage(systemName: "lock.circle"), for: .normal)
+            screenLockButton.tintColor = TreeShopTheme.secondaryText
+            showAlert(title: "Screen Lock OFF", message: "Screen will auto-sleep normally.")
+        }
+        
+        // Haptic feedback
+        let generator = UINotificationFeedbackGenerator()
+        generator.notificationOccurred(isScreenLocked ? .success : .warning)
+    }
+    
     private func setupGestureRecognizers() {
         // Drawing tap gesture - NOT added by default
         drawingTapGesture = UITapGestureRecognizer(target: self, action: #selector(handleDrawingTap(_:)))
@@ -260,74 +446,81 @@ class MainMapViewController: UIViewController {
         view.addSubview(bottomToolsView)
         view.bringSubviewToFront(bottomToolsView)
         
-        // Current mode label
+        // Create a stack view for better layout
+        let stackView = UIStackView()
+        stackView.translatesAutoresizingMaskIntoConstraints = false
+        stackView.axis = .horizontal
+        stackView.alignment = .center
+        stackView.distribution = .fillEqually
+        stackView.spacing = 16
+        bottomToolsView.addSubview(stackView)
+        
+        // Left side: Mode status
+        let leftContainer = UIView()
         currentModeLabel = UILabel()
         currentModeLabel.translatesAutoresizingMaskIntoConstraints = false
         currentModeLabel.text = "Ready"
         currentModeLabel.textColor = TreeShopTheme.primaryText
         currentModeLabel.font = UIFont.systemFont(ofSize: 14, weight: .medium)
-        bottomToolsView.addSubview(currentModeLabel)
+        currentModeLabel.textAlignment = .left
+        leftContainer.addSubview(currentModeLabel)
         
-        // Area label
+        // Right side: Measurements with cool font
+        let rightContainer = UIView()
+        
+        // Main measurement (area or distance)
         areaLabel = UILabel()
         areaLabel.translatesAutoresizingMaskIntoConstraints = false
         areaLabel.text = "0.00 acres"
-        areaLabel.textColor = TreeShopTheme.primaryText
-        areaLabel.font = UIFont.systemFont(ofSize: 18, weight: .semibold)
-        bottomToolsView.addSubview(areaLabel)
+        areaLabel.textColor = TreeShopTheme.primaryGreen
+        areaLabel.font = UIFont.monospacedDigitSystemFont(ofSize: 24, weight: .bold)
+        areaLabel.textAlignment = .right
+        areaLabel.adjustsFontSizeToFitWidth = true
+        areaLabel.minimumScaleFactor = 0.7
+        rightContainer.addSubview(areaLabel)
         
-        // Perimeter label
+        // Perimeter measurement 
         perimeterLabel = UILabel()
         perimeterLabel.translatesAutoresizingMaskIntoConstraints = false
         perimeterLabel.text = ""
         perimeterLabel.textColor = TreeShopTheme.accentGreen
-        perimeterLabel.font = UIFont.systemFont(ofSize: 14, weight: .medium)
+        perimeterLabel.font = UIFont.monospacedDigitSystemFont(ofSize: 14, weight: .semibold)
+        perimeterLabel.textAlignment = .right
+        perimeterLabel.adjustsFontSizeToFitWidth = true
+        perimeterLabel.minimumScaleFactor = 0.8
         perimeterLabel.isHidden = true
-        bottomToolsView.addSubview(perimeterLabel)
+        rightContainer.addSubview(perimeterLabel)
         
-        // Package selector - REMOVED
-        // let packages = ServicePackage.allCases.map { $0.rawValue }
-        // packageSelector = UISegmentedControl(items: packages)
-        // packageSelector.translatesAutoresizingMaskIntoConstraints = false
-        // packageSelector.selectedSegmentIndex = 1 // Medium by default
-        // packageSelector.addTarget(self, action: #selector(packageChanged(_:)), for: .valueChanged)
-        // 
-        // if #available(iOS 13.0, *) {
-        //     packageSelector.selectedSegmentTintColor = TreeShopTheme.primaryGreen
-        //     packageSelector.backgroundColor = TreeShopTheme.buttonBackground
-        //     let normalTextAttributes: [NSAttributedString.Key: Any] = [
-        //         .foregroundColor: TreeShopTheme.secondaryText
-        //     ]
-        //     let selectedTextAttributes: [NSAttributedString.Key: Any] = [
-        //         .foregroundColor: UIColor.white
-        //     ]
-        //     packageSelector.setTitleTextAttributes(normalTextAttributes, for: .normal)
-        //     packageSelector.setTitleTextAttributes(selectedTextAttributes, for: .selected)
-        // }
-        // 
-        // bottomToolsView.addSubview(packageSelector)
+        // Add containers to stack
+        stackView.addArrangedSubview(leftContainer)
+        stackView.addArrangedSubview(rightContainer)
         
-        // Constraints
+        // Layout constraints
         NSLayoutConstraint.activate([
             bottomToolsView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             bottomToolsView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             bottomToolsView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
-            bottomToolsView.heightAnchor.constraint(equalToConstant: 80),  // Reduced height since no package selector
+            bottomToolsView.heightAnchor.constraint(equalToConstant: 90),
             
-            currentModeLabel.topAnchor.constraint(equalTo: bottomToolsView.topAnchor, constant: 16),
-            currentModeLabel.leadingAnchor.constraint(equalTo: bottomToolsView.leadingAnchor, constant: 20),
+            // Stack view layout
+            stackView.leadingAnchor.constraint(equalTo: bottomToolsView.leadingAnchor, constant: 20),
+            stackView.trailingAnchor.constraint(equalTo: bottomToolsView.trailingAnchor, constant: -20),
+            stackView.topAnchor.constraint(equalTo: bottomToolsView.topAnchor, constant: 16),
+            stackView.bottomAnchor.constraint(equalTo: bottomToolsView.bottomAnchor, constant: -16),
             
-            areaLabel.topAnchor.constraint(equalTo: currentModeLabel.bottomAnchor, constant: 8),
-            areaLabel.leadingAnchor.constraint(equalTo: bottomToolsView.leadingAnchor, constant: 20),
+            // Left container - mode label
+            currentModeLabel.leadingAnchor.constraint(equalTo: leftContainer.leadingAnchor),
+            currentModeLabel.centerYAnchor.constraint(equalTo: leftContainer.centerYAnchor),
+            currentModeLabel.trailingAnchor.constraint(lessThanOrEqualTo: leftContainer.trailingAnchor),
             
-            perimeterLabel.topAnchor.constraint(equalTo: areaLabel.bottomAnchor, constant: 4),
-            perimeterLabel.leadingAnchor.constraint(equalTo: bottomToolsView.leadingAnchor, constant: 20)
+            // Right container - measurements
+            areaLabel.trailingAnchor.constraint(equalTo: rightContainer.trailingAnchor),
+            areaLabel.topAnchor.constraint(equalTo: rightContainer.topAnchor, constant: 4),
+            areaLabel.leadingAnchor.constraint(greaterThanOrEqualTo: rightContainer.leadingAnchor),
             
-            // Removed package selector constraints
-            // packageSelector.leadingAnchor.constraint(equalTo: bottomToolsView.leadingAnchor, constant: 20),
-            // packageSelector.trailingAnchor.constraint(equalTo: bottomToolsView.trailingAnchor, constant: -20),
-            // packageSelector.bottomAnchor.constraint(equalTo: bottomToolsView.bottomAnchor, constant: -20),
-            // packageSelector.heightAnchor.constraint(equalToConstant: 32)
+            perimeterLabel.trailingAnchor.constraint(equalTo: rightContainer.trailingAnchor),
+            perimeterLabel.topAnchor.constraint(equalTo: areaLabel.bottomAnchor, constant: 2),
+            perimeterLabel.leadingAnchor.constraint(greaterThanOrEqualTo: rightContainer.leadingAnchor)
         ])
     }
     
@@ -356,8 +549,8 @@ class MainMapViewController: UIViewController {
         
         let flexSpace = UIBarButtonItem(barButtonSystemItem: .flexibleSpace, target: nil, action: nil)
         
-        // Start with just 2 buttons - more appear when drawing
-        toolbar.setItems([flexSpace, drawBtn, flexSpace, moreBtn, flexSpace], animated: false)
+        // Simplified - just set items without complex constraints
+        toolbar.items = [flexSpace, drawBtn, flexSpace, moreBtn, flexSpace]
         
         view.addSubview(toolbar)
         view.bringSubviewToFront(toolbar)
@@ -389,7 +582,7 @@ class MainMapViewController: UIViewController {
         
         if mode == .normal {
             // Normal mode: Just Draw and More
-            toolbar.setItems([flexSpace, drawBtn, flexSpace, moreBtn, flexSpace], animated: true)
+            toolbar.items = [flexSpace, drawBtn, flexSpace, moreBtn, flexSpace]
         } else {
             // Drawing mode: Add Clear and Undo buttons
             let clearBtn = UIBarButtonItem(
@@ -406,7 +599,7 @@ class MainMapViewController: UIViewController {
                 action: #selector(undoLastPoint)
             )
             
-            toolbar.setItems([drawBtn, flexSpace, undoBtn, flexSpace, clearBtn, flexSpace, moreBtn], animated: true)
+            toolbar.items = [drawBtn, flexSpace, undoBtn, flexSpace, clearBtn, flexSpace, moreBtn]
         }
     }
     
@@ -1481,6 +1674,11 @@ class MainMapViewController: UIViewController {
     @objc private func showMoreMenu() {
         let alertController = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
         
+        // Property line visibility toggle
+        alertController.addAction(UIAlertAction(title: "🏠 Toggle Property Lines", style: .default) { [weak self] _ in
+            self?.togglePropertyLines()
+        })
+        
         // History action
         alertController.addAction(UIAlertAction(title: "View History", style: .default) { [weak self] _ in
             self?.showMeasurementHistory()
@@ -1625,6 +1823,181 @@ class MainMapViewController: UIViewController {
         
         print("Loaded \(savedDrawings.count) saved drawings on map")
     }
+    
+    // MARK: - Property Lines Integration
+    @objc private func togglePropertyLines() {
+        showPropertyLines.toggle()
+        
+        if showPropertyLines {
+            showAlert(title: "Property Lines ON", message: "Property boundaries will show when zoomed in close.")
+            loadPropertyLinesIfNeeded()
+        } else {
+            showAlert(title: "Property Lines OFF", message: "Property boundaries hidden.")
+            clearPropertyLines()
+        }
+    }
+    
+    private func loadPropertyLinesIfNeeded() {
+        guard showPropertyLines else { return }
+        
+        // Only load when zoomed in enough (less than 0.01 degree span ≈ 1km)
+        let currentSpan = mapView.region.span
+        guard currentSpan.latitudeDelta < 0.01 && currentSpan.longitudeDelta < 0.01 else {
+            // Too zoomed out - clear property lines
+            clearPropertyLines()
+            return
+        }
+        
+        // Don't reload if we've already loaded this region recently
+        if let lastRegion = lastPropertyLoadRegion {
+            let centerDistance = abs(lastRegion.center.latitude - mapView.region.center.latitude) + 
+                               abs(lastRegion.center.longitude - mapView.region.center.longitude)
+            if centerDistance < 0.002 { // About 200m
+                return // Already loaded nearby
+            }
+        }
+        
+        lastPropertyLoadRegion = mapView.region
+        loadPropertyLinesInCurrentView()
+    }
+    
+    private func loadPropertyLinesInCurrentView() {
+        // Clear existing property lines first
+        clearPropertyLines()
+        
+        let center = mapView.region.center
+        let span = mapView.region.span
+        
+        // Call TreeShop backend to get real Regrid parcel data  
+        let urlString = "http://localhost:3003/v1/parcels/search?app_token=treeshop_app_\(UIDevice.current.identifierForVendor?.uuidString ?? "unknown")&lat=\(center.latitude)&lon=\(center.longitude)&radius=500&limit=20"
+        
+        guard let url = URL(string: urlString) else { return }
+        
+        URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
+            guard let self = self,
+                  let data = data,
+                  error == nil else {
+                print("Property line load error: \(error?.localizedDescription ?? "Unknown")")
+                return
+            }
+            
+            DispatchQueue.main.async {
+                self.parseAndDisplayRegridGeoJSON(data)
+            }
+        }.resume()
+    }
+    
+    private func parseAndDisplayRegridGeoJSON(_ data: Data) {
+        do {
+            // Debug: Print raw response
+            if let jsonString = String(data: data, encoding: .utf8) {
+                print("Regrid response: \(jsonString.prefix(500))")
+            }
+            
+            // Parse Regrid response - handle both direct FeatureCollection and wrapped responses
+            var features: [[String: Any]] = []
+            
+            if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                // Check for direct FeatureCollection format
+                if json["type"] as? String == "FeatureCollection",
+                   let directFeatures = json["features"] as? [[String: Any]] {
+                    features = directFeatures
+                }
+                // Check for wrapped parcels format
+                else if let parcels = json["parcels"] as? [String: Any],
+                        let wrappedFeatures = parcels["features"] as? [[String: Any]] {
+                    features = wrappedFeatures
+                }
+            }
+            
+            print("Found \(features.count) parcel features to process")
+            
+            for (index, feature) in features.enumerated() {
+                // Extract property info
+                guard let properties = feature["properties"] as? [String: Any],
+                      let geometry = feature["geometry"] as? [String: Any] else { 
+                    print("Skipping feature \(index): missing properties or geometry")
+                    continue 
+                }
+                
+                // Get owner info from Regrid fields structure
+                let fields = properties["fields"] as? [String: Any]
+                let ownerName = fields?["owner"] as? String ?? 
+                               properties["owner"] as? String ?? 
+                               properties["owner_name"] as? String ??
+                               "Unknown Owner"
+                               
+                let headline = properties["headline"] as? String ?? 
+                              properties["address"] as? String ?? 
+                              "Property"
+                
+                print("Processing: \(headline) - Owner: \(ownerName)")
+                
+                // Parse geometry using MKGeoJSONDecoder
+                if let geometryData = try? JSONSerialization.data(withJSONObject: geometry) {
+                    do {
+                        let geoJSONObjects = try MKGeoJSONDecoder().decode(geometryData)
+                        
+                        for geoObject in geoJSONObjects {
+                            if let polygon = geoObject as? MKPolygon {
+                                // Style as property boundary
+                                polygon.title = headline
+                                polygon.subtitle = ownerName
+                                
+                                mapView.addOverlay(polygon)
+                                propertyLinePolygons.append(polygon)
+                                
+                                // Add owner name annotation at polygon center only if owner is known
+                                if ownerName != "Unknown Owner" {
+                                    let center = calculatePolygonCenterFromMKPolygon(polygon)
+                                    let annotation = MKPointAnnotation()
+                                    annotation.coordinate = center
+                                    annotation.title = ownerName
+                                    annotation.subtitle = headline
+                                    
+                                    mapView.addAnnotation(annotation)
+                                    propertyOwnerAnnotations.append(annotation)
+                                }
+                                
+                                print("Added property: \(headline)")
+                            }
+                        }
+                    } catch {
+                        print("GeoJSON decode error for feature \(index): \(error)")
+                    }
+                }
+            }
+            
+            print("✅ Loaded \(self.propertyLinePolygons.count) actual property boundaries from Regrid")
+            
+        } catch {
+            print("❌ Failed to parse Regrid response: \(error)")
+        }
+    }
+    
+    private func calculatePolygonCenterFromMKPolygon(_ polygon: MKPolygon) -> CLLocationCoordinate2D {
+        let coordinates = Array(UnsafeBufferPointer(start: polygon.points(), count: polygon.pointCount))
+        let sumLat = coordinates.reduce(0) { $0 + $1.coordinate.latitude }
+        let sumLon = coordinates.reduce(0) { $0 + $1.coordinate.longitude }
+        return CLLocationCoordinate2D(
+            latitude: sumLat / Double(coordinates.count),
+            longitude: sumLon / Double(coordinates.count)
+        )
+    }
+    
+    private func clearPropertyLines() {
+        // Remove property line polygons
+        for polygon in propertyLinePolygons {
+            mapView.removeOverlay(polygon)
+        }
+        propertyLinePolygons.removeAll()
+        
+        // Remove property owner annotations
+        mapView.removeAnnotations(propertyOwnerAnnotations)
+        propertyOwnerAnnotations.removeAll()
+        
+        lastPropertyLoadRegion = nil
+    }
 }
 
 // MARK: - UISearchBarDelegate
@@ -1766,13 +2139,24 @@ extension MainMapViewController: MKMapViewDelegate {
         if let polygon = overlay as? MKPolygon {
             let renderer = MKPolygonRenderer(polygon: polygon)
             
-            // Use a simple green color for areas
-            renderer.fillColor = TreeShopTheme.primaryGreen.withAlphaComponent(0.4)
-            renderer.strokeColor = TreeShopTheme.primaryGreen
-            renderer.lineWidth = 3
-            renderer.lineDashPattern = nil // Solid line
-            renderer.lineJoin = .round
-            renderer.lineCap = .round
+            // Check if this is a property line polygon
+            if propertyLinePolygons.contains(polygon) {
+                // Property line styling - clean white lines like HuntWise
+                renderer.fillColor = UIColor.clear
+                renderer.strokeColor = UIColor.white
+                renderer.lineWidth = 1.0
+                renderer.lineDashPattern = nil // Solid clean lines
+                renderer.lineJoin = .miter
+                renderer.lineCap = .square
+            } else {
+                // Work area polygon styling - bold and prominent
+                renderer.fillColor = TreeShopTheme.primaryGreen.withAlphaComponent(0.4)
+                renderer.strokeColor = TreeShopTheme.primaryGreen
+                renderer.lineWidth = 3
+                renderer.lineDashPattern = nil // Solid line
+                renderer.lineJoin = .round
+                renderer.lineCap = .round
+            }
             
             return renderer
         }
@@ -1864,6 +2248,54 @@ extension MainMapViewController: MKMapViewDelegate {
             return annotationView
         }
         
+        // Check if it's a property owner annotation - show as text labels like HuntWise
+        if propertyOwnerAnnotations.contains(where: { $0 === annotation }) {
+            let identifier = "PropertyOwnerLabel"
+            var annotationView = mapView.dequeueReusableAnnotationView(withIdentifier: identifier)
+            
+            if annotationView == nil {
+                annotationView = MKAnnotationView(annotation: annotation, reuseIdentifier: identifier)
+                
+                // Create text label like HuntWise
+                let label = UILabel()
+                label.text = annotation.title
+                label.textColor = UIColor.white
+                label.font = UIFont.systemFont(ofSize: 14, weight: .semibold)
+                label.textAlignment = .center
+                label.backgroundColor = UIColor.black.withAlphaComponent(0.7)
+                label.layer.cornerRadius = 4
+                label.clipsToBounds = true
+                label.sizeToFit()
+                
+                // Add padding
+                label.frame = CGRect(
+                    x: 0, y: 0, 
+                    width: label.frame.width + 16, 
+                    height: label.frame.height + 8
+                )
+                
+                annotationView?.addSubview(label)
+                annotationView?.frame = label.frame
+                annotationView?.centerOffset = CGPoint(x: 0, y: -label.frame.height/2)
+                annotationView?.canShowCallout = false
+            } else {
+                annotationView?.annotation = annotation
+                // Update label text
+                if let label = annotationView?.subviews.first as? UILabel {
+                    label.text = annotation.title
+                    label.sizeToFit()
+                    label.frame = CGRect(
+                        x: 0, y: 0, 
+                        width: label.frame.width + 16, 
+                        height: label.frame.height + 8
+                    )
+                    annotationView?.frame = label.frame
+                }
+            }
+            
+            return annotationView
+        }
+        
         // Check if it's a measurement label annotation - commented until components added
         // if let measurementLabel = annotation as? MeasurementLabelAnnotation {
         //     let identifier = "MeasurementLabel"
@@ -1885,6 +2317,9 @@ extension MainMapViewController: MKMapViewDelegate {
     func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
         // Update the search completer's region for better local search results
         localSearchCompleter.region = mapView.region
+        
+        // Auto-load property lines when zoomed in close enough
+        loadPropertyLinesIfNeeded()
     }
     
     func mapView(_ mapView: MKMapView, annotationView view: MKAnnotationView, calloutAccessoryControlTapped control: UIControl) {
