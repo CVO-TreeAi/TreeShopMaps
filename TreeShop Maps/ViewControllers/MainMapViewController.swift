@@ -40,6 +40,7 @@ class MainMapViewController: UIViewController {
         case normal
         case drawing
         case measuring
+        case treeInventory
     }
     private var currentMode: AppMode = .normal
     
@@ -64,6 +65,11 @@ class MainMapViewController: UIViewController {
     private var currentMeasurementValue: Double = 0
     private var currentPerimeterValue: Double = 0
     // private var loadedMeasurements: [StoredMeasurement] = []
+    
+    // MARK: - TreeScore Properties
+    private var treeInventoryMode: Bool = false
+    private var treeScoreAnnotations: [TreeScoreAnnotation] = []
+    private var pendingTreeLocation: CLLocationCoordinate2D?
     
     // MARK: - Gesture Recognizers
     private var drawingTapGesture: UITapGestureRecognizer!
@@ -93,6 +99,7 @@ class MainMapViewController: UIViewController {
         setupGestureRecognizers()
         setupSearchCompleter()
         loadSavedDrawingsSimple() // Load saved drawings
+        loadExistingTreeInventory() // Load saved trees
     }
     
     override var preferredStatusBarStyle: UIStatusBarStyle {
@@ -549,8 +556,22 @@ class MainMapViewController: UIViewController {
         
         let flexSpace = UIBarButtonItem(barButtonSystemItem: .flexibleSpace, target: nil, action: nil)
         
-        // Simplified - just set items without complex constraints
-        toolbar.items = [flexSpace, drawBtn, flexSpace, moreBtn, flexSpace]
+        let treeBtn = UIBarButtonItem(
+            image: UIImage(systemName: "tree.fill"),
+            style: .plain,
+            target: self,
+            action: #selector(toggleTreeInventoryMode)
+        )
+        
+        let measureBtn = UIBarButtonItem(
+            image: UIImage(systemName: "ruler"),
+            style: .plain,
+            target: self,
+            action: #selector(toggleMeasuringMode)
+        )
+        
+        // Add TreeScore and measurement tools to toolbar
+        toolbar.items = [flexSpace, drawBtn, flexSpace, treeBtn, flexSpace, measureBtn, flexSpace, moreBtn, flexSpace]
         
         view.addSubview(toolbar)
         view.bringSubviewToFront(toolbar)
@@ -580,9 +601,34 @@ class MainMapViewController: UIViewController {
         
         let flexSpace = UIBarButtonItem(barButtonSystemItem: .flexibleSpace, target: nil, action: nil)
         
+        let treeBtn = UIBarButtonItem(
+            image: UIImage(systemName: "tree.fill"),
+            style: .plain,
+            target: self,
+            action: #selector(toggleTreeInventoryMode)
+        )
+        treeBtn.tintColor = (mode == .treeInventory) ? TreeShopTheme.primaryGreen : nil
+        
+        let measureBtn = UIBarButtonItem(
+            image: UIImage(systemName: "ruler"),
+            style: .plain,
+            target: self,
+            action: #selector(toggleMeasuringMode)
+        )
+        measureBtn.tintColor = (mode == .measuring) ? TreeShopTheme.primaryGreen : nil
+        
         if mode == .normal {
-            // Normal mode: Just Draw and More
-            toolbar.items = [flexSpace, drawBtn, flexSpace, moreBtn, flexSpace]
+            // Normal mode: All main tools available
+            toolbar.items = [flexSpace, drawBtn, flexSpace, treeBtn, flexSpace, measureBtn, flexSpace, moreBtn, flexSpace]
+        } else if mode == .treeInventory {
+            // TreeScore mode: Tree tools highlighted
+            let exportBtn = UIBarButtonItem(
+                image: UIImage(systemName: "square.and.arrow.up"),
+                style: .plain,
+                target: self,
+                action: #selector(exportTreeScoreData)
+            )
+            toolbar.items = [treeBtn, flexSpace, exportBtn, flexSpace, drawBtn, flexSpace, measureBtn, flexSpace, moreBtn]
         } else {
             // Drawing mode: Add Clear and Undo buttons
             let clearBtn = UIBarButtonItem(
@@ -656,11 +702,19 @@ class MainMapViewController: UIViewController {
             updateToolbarForMode(.drawing)
             
         case .measuring:
-            currentModeLabel.text = "Drawing Mode - Tap to add points"
+            currentModeLabel.text = "Measuring Mode - Tap to add points"
             currentModeLabel.textColor = TreeShopTheme.primaryGreen
             areaLabel.text = "0 ft"
             mapView.addGestureRecognizer(drawingTapGesture)
-            updateToolbarForMode(.drawing)
+            updateToolbarForMode(.measuring)
+            
+        case .treeInventory:
+            currentModeLabel.text = "Tree Inventory - Tap map to add trees"
+            currentModeLabel.textColor = TreeShopTheme.primaryGreen
+            treeInventoryMode = true
+            updateAreaLabelWithTreeScoreInfo()
+            mapView.addGestureRecognizer(drawingTapGesture)
+            updateToolbarForMode(.treeInventory)
         }
     }
     
@@ -674,6 +728,8 @@ class MainMapViewController: UIViewController {
         case .measuring:
             // Clear measurement annotations
             clearMeasuring()
+        case .treeInventory:
+            treeInventoryMode = false
         case .normal:
             break
         }
@@ -688,12 +744,54 @@ class MainMapViewController: UIViewController {
         }
     }
     
+    @objc private func toggleTreeInventoryMode() {
+        if currentMode == .treeInventory {
+            setMode(.normal)
+        } else {
+            setMode(.treeInventory)
+        }
+    }
+    
+    @objc private func toggleMeasuringMode() {
+        if currentMode == .measuring {
+            setMode(.normal)
+        } else {
+            setMode(.measuring)
+        }
+    }
+    
+    @objc private func exportTreeScoreData() {
+        guard let exportURL = TreeInventoryManager.shared.exportTreeScoreData() else {
+            showTreeScoreAlert(title: "Export Failed", message: "Unable to export TreeScore data.")
+            return
+        }
+        
+        let activityVC = UIActivityViewController(activityItems: [exportURL], applicationActivities: nil)
+        
+        // Configure for iPad
+        if let popover = activityVC.popoverPresentationController {
+            popover.barButtonItem = toolbar.items?.first { item in
+                item.image == UIImage(systemName: "square.and.arrow.up")
+            }
+        }
+        
+        present(activityVC, animated: true)
+    }
+    
+    private func showTreeScoreAlert(title: String, message: String) {
+        let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        present(alert, animated: true)
+    }
+    
     @objc private func handleDrawingTap(_ gesture: UITapGestureRecognizer) {
         switch currentMode {
         case .drawing:
             handleDrawingModeTap(gesture)
         case .measuring:
             handleMeasuringModeTap(gesture)
+        case .treeInventory:
+            handleTreeInventoryTap(gesture)
         default:
             break
         }
@@ -1020,10 +1118,198 @@ class MainMapViewController: UIViewController {
         //     break
         case .measuring:
             clearMeasuring()
+        case .treeInventory:
+            // Keep tree annotations but disable inventory mode
+            treeInventoryMode = false
+            currentModeLabel.text = "Ready"
         case .normal:
             // Clear search location if in normal mode
             clearSearchLocation()
             break
+        }
+    }
+    
+    // MARK: - TreeScore Mode
+    private func handleTreeInventoryTap(_ gesture: UITapGestureRecognizer) {
+        let point = gesture.location(in: mapView)
+        let coordinate = mapView.convert(point, toCoordinateFrom: mapView)
+        
+        // Get current GPS accuracy from location manager
+        let currentAccuracy = locationManager.getCurrentAccuracy()
+        
+        // Haptic feedback
+        let generator = UIImpactFeedbackGenerator(style: .medium)
+        generator.impactOccurred()
+        
+        // Present simple TreeScore input
+        presentSimpleTreeScoreInput(at: coordinate, accuracy: currentAccuracy)
+    }
+    
+    private func getLastAreaMeasurement() -> Double? {
+        // Simplified - return current measurement value if available
+        return currentMeasurementValue > 0 ? currentMeasurementValue : nil
+    }
+    
+    private func presentSimpleTreeScoreInput(at coordinate: CLLocationCoordinate2D, accuracy: CLLocationAccuracy) {
+        let alert = UIAlertController(
+            title: "🌲 TreeScore Assessment",
+            message: String(format: "GPS: %.6f, %.6f (±%.1fm)\n\nEnter field measurements for TreeScore calculation:", 
+                          coordinate.latitude, coordinate.longitude, accuracy),
+            preferredStyle: .alert
+        )
+        
+        alert.addTextField { textField in
+            textField.placeholder = "Height (feet) - use forestry laser"
+            textField.keyboardType = .decimalPad
+        }
+        
+        alert.addTextField { textField in
+            textField.placeholder = "Canopy radius (feet) - trunk to edge"
+            textField.keyboardType = .decimalPad
+        }
+        
+        alert.addTextField { textField in
+            textField.placeholder = "DBH (inches) - diameter at breast height"
+            textField.keyboardType = .decimalPad
+        }
+        
+        alert.addTextField { textField in
+            textField.placeholder = "AFISS impact (%) - requires assessment"
+            textField.keyboardType = .decimalPad
+        }
+        
+        alert.addTextField { textField in
+            textField.placeholder = "Species (optional)"
+        }
+        
+        alert.addAction(UIAlertAction(title: "Calculate TreeScore", style: .default) { _ in
+            guard let heightText = alert.textFields?[0].text,
+                  let canopyText = alert.textFields?[1].text,
+                  let dbhText = alert.textFields?[2].text,
+                  let afissText = alert.textFields?[3].text,
+                  let height = Double(heightText),
+                  let canopyRadius = Double(canopyText),
+                  let dbh = Double(dbhText),
+                  let afiss = Double(afissText) else {
+                
+                let errorAlert = UIAlertController(title: "Invalid Input", message: "Please enter valid numbers.", preferredStyle: .alert)
+                errorAlert.addAction(UIAlertAction(title: "OK", style: .default))
+                self.present(errorAlert, animated: true)
+                return
+            }
+            
+            let species = alert.textFields?[4].text?.isEmpty == false ? alert.textFields?[4].text : nil
+            
+            let treeItem = TreeInventoryItem(
+                coordinate: coordinate,
+                gpsAccuracy: accuracy,
+                height: height,
+                canopyRadius: canopyRadius,
+                dbh: dbh,
+                afissPercentage: afiss,
+                species: species
+            )
+            
+            // Add to inventory and map
+            TreeInventoryManager.shared.addTree(treeItem)
+            let annotation = treeItem.createMapAnnotation()
+            self.mapView.addAnnotation(annotation)
+            self.treeScoreAnnotations.append(annotation)
+            self.updateAreaLabelWithTreeScoreInfo()
+            
+            // Show confirmation
+            let complexity = treeItem.getComplexityLevel()
+            let confirmAlert = UIAlertController(
+                title: "🌲 Tree Added",
+                message: String(format: "TreeScore: %.0f pts\nComplexity: %@", treeItem.treeScore.finalTreeScore, complexity.rawValue),
+                preferredStyle: .alert
+            )
+            confirmAlert.addAction(UIAlertAction(title: "OK", style: .default))
+            self.present(confirmAlert, animated: true)
+        })
+        
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        
+        present(alert, animated: true)
+    }
+    
+    private func suggestServicePackage(forArea acres: Double) -> ServicePackage {
+        switch acres {
+        case 0..<0.5: return .small
+        case 0.5..<2.0: return .medium
+        case 2.0..<5.0: return .large
+        case 5.0..<10.0: return .xLarge
+        default: return .max
+        }
+    }
+    
+    private func updateAreaLabelWithTreeScoreInfo() {
+        let trees = TreeInventoryManager.shared.getTrees()
+        let totalTreeScore = TreeInventoryManager.shared.getTotalTreeScore()
+        let averageTreeScore = TreeInventoryManager.shared.getAverageTreeScore()
+        
+        if trees.isEmpty {
+            areaLabel.text = "0.00 acres | No trees"
+        } else {
+            if let lastMeasurementValue = getLastAreaMeasurement() {
+                areaLabel.text = String(format: "%.2f acres | %d trees | Avg TS: %.0f", 
+                                      lastMeasurementValue, trees.count, averageTreeScore)
+            } else {
+                areaLabel.text = String(format: "%d trees | Total TS: %.0f | Avg: %.0f", 
+                                      trees.count, totalTreeScore, averageTreeScore)
+            }
+        }
+    }
+    
+    private func createTreeScoreAnnotationView(for annotation: TreeScoreAnnotation, on mapView: MKMapView) -> MKAnnotationView? {
+        let identifier = "TreeScoreAnnotation"
+        
+        var annotationView = mapView.dequeueReusableAnnotationView(withIdentifier: identifier)
+        
+        if annotationView == nil {
+            annotationView = MKAnnotationView(annotation: annotation, reuseIdentifier: identifier)
+            annotationView?.canShowCallout = true
+            annotationView?.calloutOffset = CGPoint(x: 0, y: -5)
+            
+            // Add detail disclosure button
+            let detailButton = UIButton(type: .detailDisclosure)
+            detailButton.tintColor = TreeShopTheme.primaryGreen
+            annotationView?.rightCalloutAccessoryView = detailButton
+        } else {
+            annotationView?.annotation = annotation
+        }
+        
+        // Set custom tree icon based on complexity
+        if let treeItem = annotation.treeInventoryItem {
+            let complexity = treeItem.getComplexityLevel()
+            annotationView?.image = createTreeIcon(for: complexity)
+        } else {
+            annotationView?.image = createTreeIcon(for: .medium)
+        }
+        
+        return annotationView
+    }
+    
+    private func createTreeIcon(for complexity: TreeComplexity) -> UIImage? {
+        let config = UIImage.SymbolConfiguration(pointSize: 30, weight: .semibold)
+        let baseImage = UIImage(systemName: complexity.iconName, withConfiguration: config)
+        
+        return baseImage?.withTintColor(complexity.color, renderingMode: .alwaysOriginal)
+    }
+    
+    private func loadExistingTreeInventory() {
+        let trees = TreeInventoryManager.shared.getTrees()
+        
+        for tree in trees {
+            let annotation = tree.createMapAnnotation()
+            mapView.addAnnotation(annotation)
+            treeScoreAnnotations.append(annotation)
+        }
+        
+        updateAreaLabelWithTreeScoreInfo()
+        
+        if !trees.isEmpty {
+            print("🌲 Loaded \(trees.count) trees from inventory")
         }
     }
     
@@ -2202,6 +2488,11 @@ extension MainMapViewController: MKMapViewDelegate {
             return annotationView
         }
         
+        // Check if it's a TreeScore annotation
+        if let treeAnnotation = annotation as? TreeScoreAnnotation {
+            return createTreeScoreAnnotationView(for: treeAnnotation, on: mapView)
+        }
+        
         // Check if it's a measuring annotation
         if measuringMarkers.contains(where: { $0 === annotation }) {
             let identifier = "MeasuringMarker"
@@ -2258,7 +2549,7 @@ extension MainMapViewController: MKMapViewDelegate {
                 
                 // Create text label like HuntWise
                 let label = UILabel()
-                label.text = annotation.title
+                label.text = annotation.title ?? ""
                 label.textColor = UIColor.white
                 label.font = UIFont.systemFont(ofSize: 14, weight: .semibold)
                 label.textAlignment = .center
@@ -2282,7 +2573,7 @@ extension MainMapViewController: MKMapViewDelegate {
                 annotationView?.annotation = annotation
                 // Update label text
                 if let label = annotationView?.subviews.first as? UILabel {
-                    label.text = annotation.title
+                    label.text = annotation.title ?? ""
                     label.sizeToFit()
                     label.frame = CGRect(
                         x: 0, y: 0, 
@@ -2323,7 +2614,68 @@ extension MainMapViewController: MKMapViewDelegate {
     }
     
     func mapView(_ mapView: MKMapView, annotationView view: MKAnnotationView, calloutAccessoryControlTapped control: UIControl) {
-        // Tree functionality removed - no longer handling callout taps
+        if let treeAnnotation = view.annotation as? TreeScoreAnnotation {
+            handleTreeScoreAnnotationTap(treeAnnotation)
+        }
+    }
+    
+    private func handleTreeScoreAnnotationTap(_ annotation: TreeScoreAnnotation) {
+        guard let treeItem = annotation.treeInventoryItem else { return }
+        
+        let alert = UIAlertController(
+            title: "🌲 Tree Details",
+            message: String(format: """
+            TreeScore: %@
+            Species: %@
+            Height: %.1f ft
+            Canopy Radius: %.1f ft
+            DBH: %.1f in
+            AFISS Impact: %.0f%%
+            Estimated Time: %@
+            Estimated Cost: %@
+            GPS Accuracy: ±%.1fm
+            """,
+            treeItem.getFormattedTreeScore(),
+            treeItem.species ?? "Unknown",
+            treeItem.height,
+            treeItem.canopyRadius,
+            treeItem.dbh,
+            treeItem.afissPercentage,
+            treeItem.getFormattedEstimatedTime() ?? "N/A",
+            treeItem.getFormattedEstimatedCost() ?? "N/A",
+            treeItem.gpsAccuracy
+            ),
+            preferredStyle: .alert
+        )
+        
+        alert.addAction(UIAlertAction(title: "Delete", style: .destructive) { _ in
+            self.deleteTreeItem(treeItem)
+        })
+        
+        alert.addAction(UIAlertAction(title: "Close", style: .cancel))
+        
+        present(alert, animated: true)
+    }
+    
+    private func deleteTreeItem(_ treeItem: TreeInventoryItem) {
+        // Remove from inventory manager
+        TreeInventoryManager.shared.deleteTree(by: treeItem.id)
+        
+        // Remove annotation from map
+        if let annotationToRemove = mapView.annotations.first(where: { annotation in
+            if let treeAnnotation = annotation as? TreeScoreAnnotation {
+                return treeAnnotation.treeInventoryItem?.id == treeItem.id
+            }
+            return false
+        }) {
+            mapView.removeAnnotation(annotationToRemove)
+            treeScoreAnnotations.removeAll { $0.treeInventoryItem?.id == treeItem.id }
+        }
+        
+        // Update display
+        updateAreaLabelWithTreeScoreInfo()
+        
+        showTreeScoreAlert(title: "Tree Deleted", message: "Tree has been removed from inventory.")
     }
 }
 
@@ -2433,6 +2785,62 @@ extension MKCoordinateRegion {
         )
         
         self = MKCoordinateRegion(center: center, span: span)
+    }
+}
+
+// MARK: - TreeScore Integration
+extension MainMapViewController: TreeScoreInputDelegate {
+    func didCreateTreeInventoryItem(_ item: TreeInventoryItem) {
+        // Add to inventory manager
+        TreeInventoryManager.shared.addTree(item)
+        
+        // Create and add map annotation
+        let annotation = item.createMapAnnotation()
+        mapView.addAnnotation(annotation)
+        treeScoreAnnotations.append(annotation)
+        
+        // Update area label with tree count and TreeScore info
+        updateAreaLabelWithTreeScoreInfo()
+        
+        // Dismiss the input controller
+        dismiss(animated: true) {
+            self.showTreeAddedConfirmation(treeScore: item.treeScore.finalTreeScore)
+        }
+        
+        print("🌲 Added tree with TreeScore: \(item.treeScore.finalTreeScore)")
+    }
+    
+    func didCancelTreeInput() {
+        dismiss(animated: true)
+    }
+    
+    private func showTreeAddedConfirmation(treeScore: Double) {
+        let complexity = getTreeComplexity(for: treeScore)
+        
+        let alert = UIAlertController(
+            title: "🌲 Tree Added to Inventory",
+            message: String(format: "TreeScore: %.0f pts\nComplexity: %@", treeScore, complexity.rawValue),
+            preferredStyle: .alert
+        )
+        
+        alert.addAction(UIAlertAction(title: "Add Another", style: .default) { _ in
+            // Stay in tree inventory mode
+        })
+        
+        alert.addAction(UIAlertAction(title: "Done", style: .cancel) { _ in
+            self.setMode(.normal)
+        })
+        
+        present(alert, animated: true)
+    }
+    
+    private func getTreeComplexity(for treeScore: Double) -> TreeComplexity {
+        switch treeScore {
+        case 0..<500: return .low
+        case 500..<1500: return .medium  
+        case 1500..<3000: return .high
+        default: return .extreme
+        }
     }
 }
 */

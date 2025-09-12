@@ -303,4 +303,17 @@ extension LocationManager: CLLocationManagerDelegate {
             break
         }
     }
+    
+    // MARK: - TreeScore Integration
+    
+    /// Get current GPS accuracy for TreeScore calculations
+    func getCurrentAccuracy() -> CLLocationAccuracy {
+        return locationManager.location?.horizontalAccuracy ?? -1.0
+    }
+    
+    /// Get current location for TreeScore calculations
+    func getCurrentLocationForTreeScore() -> (coordinate: CLLocationCoordinate2D, accuracy: CLLocationAccuracy)? {
+        guard let location = locationManager.location else { return nil }
+        return (coordinate: location.coordinate, accuracy: location.horizontalAccuracy)
+    }
 }
