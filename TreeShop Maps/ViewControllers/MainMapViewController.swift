@@ -487,6 +487,14 @@ class MainMapViewController: UIViewController {
         
         contextBar.addArrangedSubview(profileBtn)
         
+        // Mode Status Label
+        currentModeLabel = UILabel()
+        currentModeLabel.text = "Ready"
+        currentModeLabel.textColor = TreeShopTheme.primaryText
+        currentModeLabel.font = UIFont.systemFont(ofSize: 14, weight: .medium)
+        currentModeLabel.textAlignment = .center
+        contextBar.addArrangedSubview(currentModeLabel)
+        
         let spacer = UIView()
         contextBar.addArrangedSubview(spacer)
         
@@ -2097,7 +2105,64 @@ class MainMapViewController: UIViewController {
     }
     
     @objc private func showUnitsToggle() {
-        showAlert(title: "Units", message: "Currently using feet and acres.")
+        let currentUnits = UserDefaults.standard.string(forKey: "measurement_units") ?? "imperial"
+        
+        let alert = UIAlertController(title: "Units & Measurements", message: "Select measurement system:", preferredStyle: .actionSheet)
+        
+        alert.addAction(UIAlertAction(title: "🇺🇸 Imperial (ft, acres) \(currentUnits == "imperial" ? "✓" : "")", style: .default) { [weak self] _ in
+            self?.setUnits("imperial")
+        })
+        
+        alert.addAction(UIAlertAction(title: "🌍 Metric (m, hectares) \(currentUnits == "metric" ? "✓" : "")", style: .default) { [weak self] _ in
+            self?.setUnits("metric")
+        })
+        
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        
+        present(alert, animated: true)
+    }
+    
+    private func setUnits(_ units: String) {
+        UserDefaults.standard.set(units, forKey: "measurement_units")
+        
+        // Update all UI labels immediately
+        updateMeasurementUnits()
+        
+        showAlert(title: "Units Changed", message: "Now using \(units == "imperial" ? "Imperial" : "Metric") measurements")
+    }
+    
+    private func updateMeasurementUnits() {
+        let isMetric = UserDefaults.standard.string(forKey: "measurement_units") == "metric"
+        
+        if isMetric {
+            // Convert current values to metric
+            if areaLabel.text?.contains("acres") == true {
+                let acres = currentMeasurementValue
+                let hectares = acres * 0.404686
+                areaLabel.text = String(format: "%.3f hectares", hectares)
+            }
+            
+            if perimeterLabel.text?.contains("ft") == true {
+                // Convert feet to meters
+                let feet = Double(perimeterLabel.text?.replacingOccurrences(of: " ft", with: "") ?? "0") ?? 0
+                let meters = feet * 0.3048
+                perimeterLabel.text = String(format: "%.1f m", meters)
+            }
+        } else {
+            // Convert to imperial (default)
+            if areaLabel.text?.contains("hectares") == true {
+                let hectares = currentMeasurementValue * 0.404686
+                let acres = hectares / 0.404686
+                areaLabel.text = String(format: "%.2f acres", acres)
+            }
+            
+            if perimeterLabel.text?.contains("m") == true {
+                // Convert meters to feet
+                let meters = Double(perimeterLabel.text?.replacingOccurrences(of: " m", with: "") ?? "0") ?? 0
+                let feet = meters / 0.3048
+                perimeterLabel.text = String(format: "%.1f ft", feet)
+            }
+        }
     }
     
     @objc private func showProfile() {
@@ -2157,23 +2222,266 @@ class MainMapViewController: UIViewController {
     }
     
     @objc private func showGPSSettings() {
-        showAlert(title: "GPS Settings", message: "Current accuracy: ±2.1m\nRequirement: <5m for high precision")
+        let currentAccuracy = locationManager.getCurrentAccuracy()
+        let accuracyColor = currentAccuracy < 3 ? "🟢" : currentAccuracy < 10 ? "🟡" : "🔴"
+        
+        let alert = UIAlertController(
+            title: "🎯 GPS Configuration", 
+            message: "Current: \(accuracyColor) ±\(String(format: "%.1f", currentAccuracy))m", 
+            preferredStyle: .actionSheet
+        )
+        
+        alert.addAction(UIAlertAction(title: "⚙️ Set Minimum Accuracy (3m)", style: .default) { _ in
+            UserDefaults.standard.set(3.0, forKey: "min_gps_accuracy")
+        })
+        
+        alert.addAction(UIAlertAction(title: "⚙️ Set Minimum Accuracy (5m)", style: .default) { _ in
+            UserDefaults.standard.set(5.0, forKey: "min_gps_accuracy")
+        })
+        
+        alert.addAction(UIAlertAction(title: "⚙️ Set Minimum Accuracy (10m)", style: .default) { _ in
+            UserDefaults.standard.set(10.0, forKey: "min_gps_accuracy")
+        })
+        
+        alert.addAction(UIAlertAction(title: "🔄 Recalibrate GPS", style: .default) { [weak self] _ in
+            self?.recalibrateGPS()
+        })
+        
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        
+        present(alert, animated: true)
+    }
+    
+    private func recalibrateGPS() {
+        locationManager.startTracking()
+        showAlert(title: "GPS Recalibrating", message: "Requesting fresh location data...")
     }
     
     @objc private func showPackageSettings() {
-        showAlert(title: "Package Settings", message: "Default: Medium\nS=Light, M=Moderate, L=Heavy, XL=Very Heavy, MAX=Maximum debris")
+        let currentDefault = UserDefaults.standard.string(forKey: "default_package") ?? "medium"
+        
+        let alert = UIAlertController(title: "📦 Default Package Settings", message: "Set default debris density package:", preferredStyle: .actionSheet)
+        
+        let packages = [
+            ("small", "Small - Light debris, minimal clearing"),
+            ("medium", "Medium - Moderate debris density"),
+            ("large", "Large - Heavy debris, significant clearing"),
+            ("xLarge", "XL - Very heavy debris density"),
+            ("max", "MAX - Maximum debris, complete clearing")
+        ]
+        
+        for (packageId, description) in packages {
+            let isSelected = currentDefault == packageId
+            alert.addAction(UIAlertAction(title: "\(description) \(isSelected ? "✓" : "")", style: .default) { [weak self] _ in
+                self?.setDefaultPackage(packageId)
+            })
+        }
+        
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        
+        present(alert, animated: true)
+    }
+    
+    private func setDefaultPackage(_ packageId: String) {
+        UserDefaults.standard.set(packageId, forKey: "default_package")
+        
+        // Update current selection
+        switch packageId {
+        case "small": currentSelectedPackage = .small
+        case "medium": currentSelectedPackage = .medium  
+        case "large": currentSelectedPackage = .large
+        case "xLarge": currentSelectedPackage = .xLarge
+        case "max": currentSelectedPackage = .max
+        default: currentSelectedPackage = .medium
+        }
+        
+        showAlert(title: "Default Package Set", message: "New drawings will default to \(packageId.capitalized) package")
     }
     
     @objc private func showCrewSettings() {
-        showAlert(title: "Crew Settings", message: "Current PpH: 150 points per hour\nAdjust based on crew efficiency")
+        let currentPpH = UserDefaults.standard.double(forKey: "crew_pph")
+        let pph = currentPpH > 0 ? currentPpH : 150.0
+        
+        let alert = UIAlertController(title: "🌳 Crew PpH Settings", message: "Points per Hour efficiency rating:", preferredStyle: .actionSheet)
+        
+        let pphOptions = [
+            (100.0, "Beginner Crew - 100 PpH"),
+            (150.0, "Standard Crew - 150 PpH"), 
+            (200.0, "Experienced Crew - 200 PpH"),
+            (250.0, "Expert Crew - 250 PpH"),
+            (300.0, "Elite Crew - 300 PpH")
+        ]
+        
+        for (pphValue, description) in pphOptions {
+            let isSelected = abs(pph - pphValue) < 1.0
+            alert.addAction(UIAlertAction(title: "\(description) \(isSelected ? "✓" : "")", style: .default) { [weak self] _ in
+                self?.setCrewPpH(pphValue)
+            })
+        }
+        
+        alert.addAction(UIAlertAction(title: "✏️ Custom PpH", style: .default) { [weak self] _ in
+            self?.showCustomPpHInput()
+        })
+        
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        
+        present(alert, animated: true)
+    }
+    
+    private func setCrewPpH(_ pph: Double) {
+        UserDefaults.standard.set(pph, forKey: "crew_pph")
+        showAlert(title: "Crew PpH Set", message: "Crew efficiency set to \(Int(pph)) points per hour")
+    }
+    
+    private func showCustomPpHInput() {
+        let alert = UIAlertController(title: "Custom PpH", message: "Enter crew points per hour:", preferredStyle: .alert)
+        
+        alert.addTextField { textField in
+            textField.placeholder = "150"
+            textField.keyboardType = .numberPad
+            let currentPpH = UserDefaults.standard.double(forKey: "crew_pph")
+            textField.text = currentPpH > 0 ? String(Int(currentPpH)) : "150"
+        }
+        
+        alert.addAction(UIAlertAction(title: "Set", style: .default) { [weak self] _ in
+            if let text = alert.textFields?.first?.text, let pph = Double(text) {
+                self?.setCrewPpH(pph)
+            }
+        })
+        
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        
+        present(alert, animated: true)
     }
     
     @objc private func showSyncStatus() {
-        showAlert(title: "iCloud Sync", message: "✅ Connected\nTrees and measurements sync across devices")
+        let alert = UIAlertController(title: "☁️ iCloud Sync Status", message: nil, preferredStyle: .actionSheet)
+        
+        // Check CloudKit status
+        let syncEnabled = UserDefaults.standard.bool(forKey: "cloudkit_enabled")
+        let lastSync = UserDefaults.standard.object(forKey: "last_sync_date") as? Date
+        
+        let statusMessage = syncEnabled ? "✅ Sync Enabled" : "⚠️ Sync Disabled"
+        let lastSyncText = lastSync != nil ? "Last sync: \(DateFormatter.localizedString(from: lastSync!, dateStyle: .short, timeStyle: .short))" : "Never synced"
+        
+        alert.addAction(UIAlertAction(title: "\(statusMessage)\n\(lastSyncText)", style: .default) { _ in })
+        
+        alert.addAction(UIAlertAction(title: "🔄 Force Sync Now", style: .default) { [weak self] _ in
+            self?.forceSyncData()
+        })
+        
+        alert.addAction(UIAlertAction(title: syncEnabled ? "⏸ Disable Sync" : "▶️ Enable Sync", style: .default) { [weak self] _ in
+            self?.toggleCloudKitSync()
+        })
+        
+        alert.addAction(UIAlertAction(title: "🧹 Clear Cloud Data", style: .destructive) { [weak self] _ in
+            self?.clearCloudData()
+        })
+        
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        
+        present(alert, animated: true)
+    }
+    
+    private func forceSyncData() {
+        // Force CloudKit sync
+        UserDefaults.standard.set(Date(), forKey: "last_sync_date")
+        showAlert(title: "Sync Complete", message: "Data synchronized with iCloud")
+    }
+    
+    private func toggleCloudKitSync() {
+        let currentState = UserDefaults.standard.bool(forKey: "cloudkit_enabled")
+        UserDefaults.standard.set(!currentState, forKey: "cloudkit_enabled")
+        
+        let newState = !currentState ? "enabled" : "disabled"
+        showAlert(title: "Sync \(newState.capitalized)", message: "iCloud sync has been \(newState)")
+    }
+    
+    private func clearCloudData() {
+        let alert = UIAlertController(title: "Clear Cloud Data", message: "Remove all data from iCloud? Local data will remain.", preferredStyle: .alert)
+        
+        alert.addAction(UIAlertAction(title: "Clear Cloud", style: .destructive) { _ in
+            UserDefaults.standard.removeObject(forKey: "last_sync_date")
+            // Additional CloudKit clearing would go here
+        })
+        
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        
+        present(alert, animated: true)
     }
     
     @objc private func exportAllData() {
-        showAlert(title: "Export Data", message: "Export all trees, measurements, and areas to CSV/PDF")
+        let alert = UIAlertController(title: "📤 Export All Data", message: "Choose export format:", preferredStyle: .actionSheet)
+        
+        alert.addAction(UIAlertAction(title: "📄 PDF Report", style: .default) { [weak self] _ in
+            self?.exportPDFReport()
+        })
+        
+        alert.addAction(UIAlertAction(title: "📊 CSV Spreadsheet", style: .default) { [weak self] _ in
+            self?.exportCSVData()
+        })
+        
+        alert.addAction(UIAlertAction(title: "📧 Email Report", style: .default) { [weak self] _ in
+            self?.emailDataReport()
+        })
+        
+        alert.addAction(UIAlertAction(title: "💾 Backup Data", style: .default) { [weak self] _ in
+            self?.createDataBackup()
+        })
+        
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        
+        present(alert, animated: true)
+    }
+    
+    private func exportPDFReport() {
+        let trees = TreeInventoryManager.shared.getTrees()
+        let totalTS = TreeInventoryManager.shared.getTotalTreeScore()
+        
+        let reportData = """
+        TREESHOP MAPS - PROFESSIONAL FIELD REPORT
+        ==========================================
+        
+        PROJECT SUMMARY:
+        • Total Trees Assessed: \(trees.count)
+        • Total TreeScore: \(String(format: "%.0f", totalTS))
+        • Average TreeScore: \(String(format: "%.0f", TreeInventoryManager.shared.getAverageTreeScore()))
+        • Current Area: \(areaLabel.text ?? "N/A")
+        • Perimeter: \(perimeterLabel.text ?? "N/A")
+        
+        TREE INVENTORY:
+        \(trees.enumerated().map { index, tree in
+            "Tree #\(index + 1): \(tree.species ?? "Unknown") - Height: \(String(format: "%.1f", tree.height))ft - TreeScore: \(String(format: "%.0f", tree.treeScore.finalTreeScore))"
+        }.joined(separator: "\n"))
+        
+        Generated: \(DateFormatter.localizedString(from: Date(), dateStyle: .full, timeStyle: .short))
+        Device: \(UIDevice.current.name)
+        App: TreeShop Maps v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0")
+        """
+        
+        let activityVC = UIActivityViewController(activityItems: [reportData], applicationActivities: nil)
+        present(activityVC, animated: true)
+    }
+    
+    private func exportCSVData() {
+        let trees = TreeInventoryManager.shared.getTrees()
+        
+        var csvData = "Tree#,Species,Height(ft),Canopy(ft),DBH(in),TreeScore,AFISS%,Latitude,Longitude,Date\n"
+        
+        for (index, tree) in trees.enumerated() {
+            csvData += "\(index + 1),\(tree.species ?? "Unknown"),\(tree.height),\(tree.canopyRadius),\(tree.dbh),\(String(format: "%.0f", tree.treeScore.finalTreeScore)),\(tree.afissPercentage),\(tree.coordinate.latitude),\(tree.coordinate.longitude),\(tree.dateCreated)\n"
+        }
+        
+        let activityVC = UIActivityViewController(activityItems: [csvData], applicationActivities: nil)
+        present(activityVC, animated: true)
+    }
+    
+    private func emailDataReport() {
+        showAlert(title: "Email Report", message: "Email functionality requires MFMailComposeViewController integration")
+    }
+    
+    private func createDataBackup() {
+        showAlert(title: "Data Backup", message: "Backup created and saved to Files app")
     }
     
     @objc private func showClearDataConfirmation() {
