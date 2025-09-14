@@ -18,6 +18,7 @@ struct TreeShopTheme {
     // Button Colors
     static let buttonBackground = UIColor(red: 45/255, green: 45/255, blue: 45/255, alpha: 1.0)
     static let buttonHighlight = UIColor(red: 60/255, green: 60/255, blue: 60/255, alpha: 1.0)
+    static let secondaryGray = UIColor(red: 75/255, green: 75/255, blue: 75/255, alpha: 1.0)
     
     // Status Colors
     static let successGreen = UIColor(red: 76/255, green: 175/255, blue: 80/255, alpha: 1.0)

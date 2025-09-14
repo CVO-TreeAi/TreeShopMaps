@@ -1,6 +1,8 @@
 import UIKit
 import MapKit
 import CoreLocation
+import CoreData
+import CloudKit
 
 enum ServicePackage: String, CaseIterable {
     case small = "Small"
@@ -179,34 +181,127 @@ class TreeInventoryItem: NSObject {
     }
 }
 
-/// Tree Inventory Manager
+/// Tree Inventory Manager with Core Data + CloudKit
 class TreeInventoryManager {
     static let shared = TreeInventoryManager()
-    private var trees: [TreeInventoryItem] = []
+    
+    private lazy var persistentContainer: NSPersistentCloudKitContainer = {
+        let container = NSPersistentCloudKitContainer(name: "TreeShopMaps")
+        
+        // Configure for CloudKit
+        guard let description = container.persistentStoreDescriptions.first else {
+            fatalError("Failed to retrieve persistent store description")
+        }
+        
+        description.setOption(true as NSNumber, forKey: NSPersistentHistoryTrackingKey)
+        description.setOption(true as NSNumber, forKey: NSPersistentStoreRemoteChangeNotificationPostOptionKey)
+        
+        container.loadPersistentStores { _, error in
+            if let error = error {
+                print("❌ Core Data error: \(error)")
+            } else {
+                print("✅ Core Data + CloudKit loaded successfully")
+            }
+        }
+        
+        container.viewContext.automaticallyMergesChangesFromParent = true
+        return container
+    }()
+    
+    private var context: NSManagedObjectContext {
+        return persistentContainer.viewContext
+    }
     
     func addTree(_ tree: TreeInventoryItem) {
-        trees.append(tree)
+        let treeMark = TreeMark(context: context)
+        treeMark.id = tree.id
+        treeMark.latitude = tree.coordinate.latitude
+        treeMark.longitude = tree.coordinate.longitude
+        treeMark.height = tree.height
+        treeMark.canopyRadius = tree.canopyRadius
+        treeMark.dbh = tree.dbh
+        treeMark.species = tree.species
+        treeMark.healthStatus = "Good" // Default health status
+        treeMark.notes = "TreeScore: \(Int(tree.treeScore.finalTreeScore))"
+        treeMark.dateMarked = Date()
+        treeMark.markedBy = "TreeShop Professional Assessment"
+        
+        saveContext()
+        print("🌲 Tree saved to Core Data + CloudKit: \(tree.treeScore.finalTreeScore)")
     }
     
     func getTrees() -> [TreeInventoryItem] {
-        return trees
+        let request: NSFetchRequest<TreeMark> = TreeMark.fetchRequest()
+        
+        do {
+            let treeMarks = try context.fetch(request)
+            return treeMarks.compactMap { treeMark in
+                guard treeMark.id != nil else { return nil }
+                
+                return TreeInventoryItem(
+                    coordinate: CLLocationCoordinate2D(latitude: treeMark.latitude, longitude: treeMark.longitude),
+                    gpsAccuracy: 5.0, // Default accuracy
+                    height: treeMark.height,
+                    canopyRadius: treeMark.canopyRadius,
+                    dbh: treeMark.dbh,
+                    afissPercentage: 25.0, // Default AFISS
+                    species: treeMark.species
+                )
+            }
+        } catch {
+            print("❌ Failed to fetch trees: \(error)")
+            return []
+        }
     }
     
     func deleteTree(by id: UUID) {
-        trees.removeAll { $0.id == id }
+        let request: NSFetchRequest<TreeMark> = TreeMark.fetchRequest()
+        request.predicate = NSPredicate(format: "id == %@", id as CVarArg)
+        
+        do {
+            let trees = try context.fetch(request)
+            for tree in trees {
+                context.delete(tree)
+            }
+            saveContext()
+        } catch {
+            print("❌ Failed to delete tree: \(error)")
+        }
     }
     
     func getTotalTreeScore() -> Double {
-        return trees.reduce(0) { $0 + $1.treeScore.finalTreeScore }
+        return getTrees().reduce(0) { $0 + $1.treeScore.finalTreeScore }
     }
     
     func getAverageTreeScore() -> Double {
+        let trees = getTrees()
         guard !trees.isEmpty else { return 0 }
         return getTotalTreeScore() / Double(trees.count)
     }
     
+    private func saveContext() {
+        if context.hasChanges {
+            do {
+                try context.save()
+                print("✅ Core Data saved successfully")
+            } catch {
+                print("❌ Failed to save Core Data: \(error)")
+            }
+        }
+    }
+    
+    func loadExistingTrees(on mapView: MKMapView) {
+        let trees = getTrees()
+        print("🌲 Loading \(trees.count) existing trees from Core Data")
+        
+        for tree in trees {
+            let annotation = tree.createMapAnnotation()
+            mapView.addAnnotation(annotation)
+        }
+    }
+    
     func exportTreeScoreData() -> URL? {
-        return nil // Simplified for demo
+        return nil // TODO: Implement export
     }
 }
 

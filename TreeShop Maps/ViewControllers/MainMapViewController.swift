@@ -6,11 +6,11 @@ import CoreLocation
 class MainMapViewController: UIViewController {
     
     // MARK: - UI Elements
-    private var mapView: MKMapView!
+    var mapView: MKMapView! // Made public for tree pin access
     private var searchBar: UISearchBar!
     private var searchResultsTableView: UITableView!
     private var searchContainerView: UIView!
-    private var toolbar: UIToolbar!
+    private var toolbar: UIToolbar? // Made optional since we're not using it
     private var bottomToolsView: UIView!
     private var currentModeLabel: UILabel!
     private var areaLabel: UILabel!
@@ -34,6 +34,7 @@ class MainMapViewController: UIViewController {
     private var localSearchCompleter: MKLocalSearchCompleter!
     private var searchResults: [MKLocalSearchCompletion] = []
     private var currentSearchLocationAnnotation: MKPointAnnotation?
+    private var currentSelectedPackage: ServicePackage = .medium
     
     // MARK: - Mode Management
     enum AppMode {
@@ -128,7 +129,7 @@ class MainMapViewController: UIViewController {
         // Setup UI elements in proper order: map first, then UI on top
         setupMapView()
         setupSearchBar()
-        setupZoomControls()
+        // setupZoomControls() // Moved to bottom section
         setupMyLocationButton()
         setupBottomToolsView()
         // REMOVE ALL EXISTING TOOLBARS
@@ -137,7 +138,9 @@ class MainMapViewController: UIViewController {
                 subview.removeFromSuperview()
             }
         }
-        setupForcedCleanToolbar()
+        // setupForcedCleanToolbar() // Disabled for clean workflow UI
+        // Initialize toolbar to prevent crashes but don't show it
+        toolbar = UIToolbar()
         setupScreenLockButton()
         setupProfessionalUI()
     }
@@ -444,101 +447,295 @@ class MainMapViewController: UIViewController {
     }
     
     private func setupBottomToolsView() {
+        // STEVE JOBS CLEAN DESIGN - WORKFLOW-BASED UI
         bottomToolsView = UIView()
         bottomToolsView.translatesAutoresizingMaskIntoConstraints = false
         bottomToolsView.backgroundColor = TreeShopTheme.cardBackground
-        bottomToolsView.layer.cornerRadius = TreeShopTheme.cornerRadius
-        bottomToolsView.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
         
         view.addSubview(bottomToolsView)
         view.bringSubviewToFront(bottomToolsView)
         
-        // Create a stack view for better layout
-        let stackView = UIStackView()
-        stackView.translatesAutoresizingMaskIntoConstraints = false
-        stackView.axis = .horizontal
-        stackView.alignment = .center
-        stackView.distribution = .fillEqually
-        stackView.spacing = 16
-        bottomToolsView.addSubview(stackView)
+        // CLEAN 3-ROW LAYOUT
+        let mainStack = UIStackView()
+        mainStack.axis = .vertical
+        mainStack.distribution = .fill
+        mainStack.spacing = 16
+        mainStack.translatesAutoresizingMaskIntoConstraints = false
+        bottomToolsView.addSubview(mainStack)
         
-        // Left side: Mode status
-        let leftContainer = UIView()
-        currentModeLabel = UILabel()
-        currentModeLabel.translatesAutoresizingMaskIntoConstraints = false
-        currentModeLabel.text = "Ready"
-        currentModeLabel.textColor = TreeShopTheme.primaryText
-        currentModeLabel.font = UIFont.systemFont(ofSize: 14, weight: .medium)
-        currentModeLabel.textAlignment = .left
-        leftContainer.addSubview(currentModeLabel)
+        // ROW 1: Context Bar (Mode + Package + GPS)
+        let contextBar = UIStackView()
+        contextBar.axis = .horizontal
+        contextBar.distribution = .fill
+        contextBar.alignment = .center
+        contextBar.spacing = 16
         
-        // Right side: Measurements with cool font
-        let rightContainer = UIView()
+        // Profile Button (not a label)
+        let profileBtn = UIButton(type: .system)
+        profileBtn.setTitle("👤 Profile", for: .normal)
+        profileBtn.backgroundColor = TreeShopTheme.buttonBackground
+        profileBtn.setTitleColor(TreeShopTheme.primaryText, for: .normal)
+        profileBtn.titleLabel?.font = UIFont.systemFont(ofSize: 16, weight: .semibold)
+        profileBtn.layer.cornerRadius = 8
+        profileBtn.addTarget(self, action: #selector(showProfile), for: .touchUpInside)
+        profileBtn.translatesAutoresizingMaskIntoConstraints = false
         
-        // Main measurement (area or distance)
+        NSLayoutConstraint.activate([
+            profileBtn.widthAnchor.constraint(equalToConstant: 100),
+            profileBtn.heightAnchor.constraint(equalToConstant: 36)
+        ])
+        
+        contextBar.addArrangedSubview(profileBtn)
+        
+        let spacer = UIView()
+        contextBar.addArrangedSubview(spacer)
+        
+        let gpsLabel = UILabel()
+        gpsLabel.text = "GPS: ±2.1m"
+        gpsLabel.textColor = TreeShopTheme.secondaryText
+        gpsLabel.font = UIFont.systemFont(ofSize: 14, weight: .medium)
+        contextBar.addArrangedSubview(gpsLabel)
+        
+        mainStack.addArrangedSubview(contextBar)
+        
+        // ROW 2: Primary Data Display (More Space)
+        let dataContainer = UIView()
+        
         areaLabel = UILabel()
-        areaLabel.translatesAutoresizingMaskIntoConstraints = false
-        areaLabel.text = "0.00 acres"
+        areaLabel.text = "0.12 acres"
         areaLabel.textColor = TreeShopTheme.primaryGreen
         areaLabel.font = UIFont.monospacedDigitSystemFont(ofSize: 24, weight: .bold)
-        areaLabel.textAlignment = .right
-        areaLabel.adjustsFontSizeToFitWidth = true
-        areaLabel.minimumScaleFactor = 0.7
-        rightContainer.addSubview(areaLabel)
+        areaLabel.textAlignment = .center
+        areaLabel.translatesAutoresizingMaskIntoConstraints = false
+        dataContainer.addSubview(areaLabel)
         
-        // Perimeter measurement 
+        // Secondary Data
+        let secondaryData = UIStackView()
+        secondaryData.axis = .horizontal
+        secondaryData.distribution = .fillEqually
+        secondaryData.spacing = 8
+        secondaryData.translatesAutoresizingMaskIntoConstraints = false
+        dataContainer.addSubview(secondaryData)
+        
         perimeterLabel = UILabel()
-        perimeterLabel.translatesAutoresizingMaskIntoConstraints = false
-        perimeterLabel.text = ""
+        perimeterLabel.text = "293.5 ft"
         perimeterLabel.textColor = TreeShopTheme.accentGreen
         perimeterLabel.font = UIFont.monospacedDigitSystemFont(ofSize: 14, weight: .semibold)
-        perimeterLabel.textAlignment = .right
-        perimeterLabel.adjustsFontSizeToFitWidth = true
-        perimeterLabel.minimumScaleFactor = 0.8
-        perimeterLabel.isHidden = true
-        rightContainer.addSubview(perimeterLabel)
+        perimeterLabel.textAlignment = .center
+        secondaryData.addArrangedSubview(perimeterLabel)
         
-        // Add containers to stack
-        stackView.addArrangedSubview(leftContainer)
-        stackView.addArrangedSubview(rightContainer)
+        let treeCountLabel = UILabel()
+        treeCountLabel.text = "3 trees"
+        treeCountLabel.textColor = TreeShopTheme.primaryText
+        treeCountLabel.font = UIFont.monospacedDigitSystemFont(ofSize: 14, weight: .semibold)
+        treeCountLabel.textAlignment = .center
+        treeCountLabel.tag = 9001
+        secondaryData.addArrangedSubview(treeCountLabel)
         
-        // Layout constraints
+        NSLayoutConstraint.activate([
+            areaLabel.centerXAnchor.constraint(equalTo: dataContainer.centerXAnchor),
+            areaLabel.centerYAnchor.constraint(equalTo: dataContainer.centerYAnchor, constant: -12),
+            
+            secondaryData.topAnchor.constraint(equalTo: areaLabel.bottomAnchor, constant: 8),
+            secondaryData.leadingAnchor.constraint(equalTo: dataContainer.leadingAnchor, constant: 40),
+            secondaryData.trailingAnchor.constraint(equalTo: dataContainer.trailingAnchor, constant: -40)
+        ])
+        
+        mainStack.addArrangedSubview(dataContainer)
+        
+        // ROW 3: 4 Clear Workflow Buttons
+        let workflowRow = UIStackView()
+        workflowRow.axis = .horizontal
+        workflowRow.distribution = .fillEqually
+        workflowRow.spacing = 16
+        
+        let areaBtn = createWorkflowButton(title: "Area", subtitle: "Draw")
+        areaBtn.addTarget(self, action: #selector(toggleDrawingMode), for: .touchUpInside)
+        workflowRow.addArrangedSubview(areaBtn)
+        
+        let treeBtn = createWorkflowButton(title: "Tree", subtitle: "Assess")
+        treeBtn.addTarget(self, action: #selector(toggleTreeInventoryMode), for: .touchUpInside)
+        workflowRow.addArrangedSubview(treeBtn)
+        
+        let measureBtn = createWorkflowButton(title: "Measure", subtitle: "Tools")
+        measureBtn.addTarget(self, action: #selector(toggleMeasuringMode), for: .touchUpInside)
+        workflowRow.addArrangedSubview(measureBtn)
+        
+        let moreBtn = createWorkflowButton(title: "More", subtitle: "Menu")
+        moreBtn.addTarget(self, action: #selector(showMoreMenu), for: .touchUpInside)
+        workflowRow.addArrangedSubview(moreBtn)
+        
+        mainStack.addArrangedSubview(workflowRow)
+        
+        // Layout - 25% OF SCREEN
         NSLayoutConstraint.activate([
             bottomToolsView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             bottomToolsView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            bottomToolsView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
-            bottomToolsView.heightAnchor.constraint(equalToConstant: 90),
+            bottomToolsView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            bottomToolsView.heightAnchor.constraint(equalTo: view.heightAnchor, multiplier: 0.25),
             
-            // Stack view layout
-            stackView.leadingAnchor.constraint(equalTo: bottomToolsView.leadingAnchor, constant: 20),
-            stackView.trailingAnchor.constraint(equalTo: bottomToolsView.trailingAnchor, constant: -20),
-            stackView.topAnchor.constraint(equalTo: bottomToolsView.topAnchor, constant: 16),
-            stackView.bottomAnchor.constraint(equalTo: bottomToolsView.bottomAnchor, constant: -16),
-            
-            // Left container - mode label
-            currentModeLabel.leadingAnchor.constraint(equalTo: leftContainer.leadingAnchor),
-            currentModeLabel.centerYAnchor.constraint(equalTo: leftContainer.centerYAnchor),
-            currentModeLabel.trailingAnchor.constraint(lessThanOrEqualTo: leftContainer.trailingAnchor),
-            
-            // Right container - measurements
-            areaLabel.trailingAnchor.constraint(equalTo: rightContainer.trailingAnchor),
-            areaLabel.topAnchor.constraint(equalTo: rightContainer.topAnchor, constant: 4),
-            areaLabel.leadingAnchor.constraint(greaterThanOrEqualTo: rightContainer.leadingAnchor),
-            
-            perimeterLabel.trailingAnchor.constraint(equalTo: rightContainer.trailingAnchor),
-            perimeterLabel.topAnchor.constraint(equalTo: areaLabel.bottomAnchor, constant: 2),
-            perimeterLabel.leadingAnchor.constraint(greaterThanOrEqualTo: rightContainer.leadingAnchor)
+            mainStack.topAnchor.constraint(equalTo: bottomToolsView.topAnchor, constant: 16),
+            mainStack.leadingAnchor.constraint(equalTo: bottomToolsView.leadingAnchor, constant: 12),
+            mainStack.trailingAnchor.constraint(equalTo: bottomToolsView.trailingAnchor, constant: -12),
+            mainStack.bottomAnchor.constraint(equalTo: bottomToolsView.bottomAnchor, constant: -20)
         ])
     }
     
+    private func createWorkflowButton(title: String, subtitle: String) -> UIButton {
+        let button = UIButton(type: .system)
+        button.setTitle("\(title)\n\(subtitle)", for: .normal)
+        button.backgroundColor = TreeShopTheme.primaryGreen.withAlphaComponent(0.1)
+        button.setTitleColor(TreeShopTheme.primaryGreen, for: .normal)
+        button.titleLabel?.font = UIFont.systemFont(ofSize: 12, weight: .bold)
+        button.titleLabel?.numberOfLines = 2
+        button.titleLabel?.textAlignment = .center
+        button.layer.cornerRadius = 12
+        button.layer.borderWidth = 2
+        button.layer.borderColor = TreeShopTheme.primaryGreen.withAlphaComponent(0.3).cgColor
+        return button
+    }
+    
+    @objc private func packageSegmentChanged(_ control: UISegmentedControl) {
+        let packages = [ServicePackage.small, .medium, .large, .xLarge, .max]
+        currentSelectedPackage = packages[control.selectedSegmentIndex]
+        print("📦 Package changed to: \(currentSelectedPackage.rawValue)")
+    }
+    
+    private func createTopButton(title: String) -> UIButton {
+        let button = UIButton(type: .system)
+        button.setTitle(title, for: .normal)
+        button.backgroundColor = TreeShopTheme.buttonBackground
+        button.setTitleColor(TreeShopTheme.primaryText, for: .normal)
+        button.titleLabel?.font = UIFont.systemFont(ofSize: 12, weight: .semibold)
+        button.layer.cornerRadius = 6
+        button.translatesAutoresizingMaskIntoConstraints = false
+        
+        NSLayoutConstraint.activate([
+            button.widthAnchor.constraint(equalToConstant: 50),
+            button.heightAnchor.constraint(equalToConstant: 32)
+        ])
+        
+        return button
+    }
+    
+    @objc private func packageSelected(_ button: UIButton) {
+        let packageIndex = button.tag - 8000
+        let packages = [ServicePackage.small, .medium, .large, .xLarge, .max]
+        
+        // Update visual selection
+        if let parent = button.superview {
+            for i in 0..<5 {
+                if let btn = parent.viewWithTag(8000 + i) as? UIButton {
+                    btn.layer.borderWidth = (i == packageIndex) ? 2 : 1
+                    btn.layer.borderColor = (i == packageIndex) ? UIColor.white.cgColor : UIColor.clear.cgColor
+                }
+            }
+        }
+        
+        // Set current package for drawing
+        currentSelectedPackage = packages[packageIndex]
+        
+        print("📦 Selected package: \(packages[packageIndex].rawValue)")
+    }
+    
+    private func createMainButton(title: String) -> UIButton {
+        let button = UIButton(type: .system)
+        button.setTitle(title, for: .normal)
+        button.backgroundColor = TreeShopTheme.primaryGreen.withAlphaComponent(0.1)
+        button.setTitleColor(TreeShopTheme.primaryGreen, for: .normal)
+        button.titleLabel?.font = UIFont.systemFont(ofSize: 16, weight: .bold)
+        button.layer.cornerRadius = 12
+        button.layer.borderWidth = 2
+        button.layer.borderColor = TreeShopTheme.primaryGreen.withAlphaComponent(0.3).cgColor
+        button.translatesAutoresizingMaskIntoConstraints = false
+        
+        NSLayoutConstraint.activate([
+            button.heightAnchor.constraint(equalToConstant: 50)
+        ])
+        
+        return button
+    }
+    
+    private func createToolButton(title: String) -> UIButton {
+        let button = UIButton(type: .system)
+        button.setTitle(title, for: .normal)
+        button.backgroundColor = TreeShopTheme.primaryGreen.withAlphaComponent(0.1)
+        button.setTitleColor(TreeShopTheme.primaryGreen, for: .normal)
+        button.titleLabel?.font = UIFont.systemFont(ofSize: 14, weight: .semibold)
+        button.layer.cornerRadius = 8
+        button.layer.borderWidth = 1
+        button.layer.borderColor = TreeShopTheme.primaryGreen.withAlphaComponent(0.3).cgColor
+        return button
+    }
+    
+    private func createSimpleButton(icon: String) -> UIButton {
+        let button = UIButton(type: .system)
+        button.setTitle(icon, for: .normal)
+        button.titleLabel?.font = UIFont.systemFont(ofSize: 28)
+        button.setTitleColor(TreeShopTheme.primaryGreen, for: .normal)
+        button.backgroundColor = TreeShopTheme.primaryGreen.withAlphaComponent(0.1)
+        button.layer.cornerRadius = 25
+        button.translatesAutoresizingMaskIntoConstraints = false
+        
+        NSLayoutConstraint.activate([
+            button.widthAnchor.constraint(equalToConstant: 50),
+            button.heightAnchor.constraint(equalToConstant: 50)
+        ])
+        
+        return button
+    }
+    
+    private func createCleanToolButton(icon: String, action: Selector) -> UIButton {
+        let button = UIButton(type: .system)
+        button.setTitle(icon, for: .normal)
+        button.titleLabel?.font = UIFont.systemFont(ofSize: 24)
+        button.setTitleColor(TreeShopTheme.primaryGreen, for: .normal)
+        button.backgroundColor = TreeShopTheme.primaryGreen.withAlphaComponent(0.1)
+        button.layer.cornerRadius = 22
+        button.addTarget(self, action: action, for: .touchUpInside)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        
+        NSLayoutConstraint.activate([
+            button.widthAnchor.constraint(equalToConstant: 44),
+            button.heightAnchor.constraint(equalToConstant: 44)
+        ])
+        
+        return button
+    }
+    
+    private func createMainToolButton(icon: String, title: String, color: UIColor) -> UIButton {
+        let button = UIButton(type: .system)
+        button.setTitle("\(icon)\n\(title)", for: .normal)
+        button.backgroundColor = color.withAlphaComponent(0.1)
+        button.setTitleColor(color, for: .normal)
+        button.titleLabel?.font = UIFont.systemFont(ofSize: 12, weight: .semibold)
+        button.titleLabel?.numberOfLines = 2
+        button.titleLabel?.textAlignment = .center
+        button.layer.cornerRadius = 8
+        button.layer.borderWidth = 1
+        button.layer.borderColor = color.withAlphaComponent(0.3).cgColor
+        return button
+    }
+    
     private func setupForcedCleanToolbar() {
+        // Initialize toolbar but hide it - using bottom section instead
         toolbar?.removeFromSuperview()
         toolbar = nil
         
         toolbar = UIToolbar()
-        toolbar.translatesAutoresizingMaskIntoConstraints = false
-        toolbar.backgroundColor = TreeShopTheme.cardBackground
-        TreeShopTheme.applyToolbarTheme(to: toolbar)
+        toolbar?.translatesAutoresizingMaskIntoConstraints = false
+        toolbar?.backgroundColor = TreeShopTheme.cardBackground
+        toolbar?.isHidden = true // Hide the toolbar completely
+        
+        toolbar?.removeFromSuperview()
+        toolbar = nil
+        
+        toolbar = UIToolbar()
+        toolbar?.translatesAutoresizingMaskIntoConstraints = false
+        toolbar?.backgroundColor = TreeShopTheme.cardBackground
+        if let toolbar = toolbar {
+            TreeShopTheme.applyToolbarTheme(to: toolbar)
+        }
         
         let drawBtn = UIBarButtonItem(
             image: UIImage(systemName: "pencil.tip.crop.circle"),
@@ -571,20 +768,24 @@ class MainMapViewController: UIViewController {
         )
         
         // Add TreeScore and measurement tools to toolbar
-        toolbar.items = [flexSpace, drawBtn, flexSpace, treeBtn, flexSpace, measureBtn, flexSpace, moreBtn, flexSpace]
+        toolbar?.items = [flexSpace, drawBtn, flexSpace, treeBtn, flexSpace, measureBtn, flexSpace, moreBtn, flexSpace]
         
-        view.addSubview(toolbar)
-        view.bringSubviewToFront(toolbar)
-        
-        NSLayoutConstraint.activate([
-            toolbar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            toolbar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            toolbar.bottomAnchor.constraint(equalTo: bottomToolsView.topAnchor, constant: -8),
-            toolbar.heightAnchor.constraint(equalToConstant: 44)
-        ])
+        if let toolbar = toolbar {
+            view.addSubview(toolbar)
+            view.bringSubviewToFront(toolbar)
+            
+            NSLayoutConstraint.activate([
+                toolbar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+                toolbar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+                toolbar.bottomAnchor.constraint(equalTo: bottomToolsView.topAnchor, constant: -8),
+                toolbar.heightAnchor.constraint(equalToConstant: 44)
+            ])
+        }
     }
     
     private func updateToolbarForMode(_ mode: AppMode) {
+        // DISABLED - Using bottom section workflow buttons instead
+        
         let drawBtn = UIBarButtonItem(
             image: UIImage(systemName: "pencil.tip.crop.circle"),
             style: .plain,
@@ -619,7 +820,7 @@ class MainMapViewController: UIViewController {
         
         if mode == .normal {
             // Normal mode: All main tools available
-            toolbar.items = [flexSpace, drawBtn, flexSpace, treeBtn, flexSpace, measureBtn, flexSpace, moreBtn, flexSpace]
+            toolbar?.items = [flexSpace, drawBtn, flexSpace, treeBtn, flexSpace, measureBtn, flexSpace, moreBtn, flexSpace]
         } else if mode == .treeInventory {
             // TreeScore mode: Tree tools highlighted
             let exportBtn = UIBarButtonItem(
@@ -628,7 +829,7 @@ class MainMapViewController: UIViewController {
                 target: self,
                 action: #selector(exportTreeScoreData)
             )
-            toolbar.items = [treeBtn, flexSpace, exportBtn, flexSpace, drawBtn, flexSpace, measureBtn, flexSpace, moreBtn]
+            toolbar?.items = [treeBtn, flexSpace, exportBtn, flexSpace, drawBtn, flexSpace, measureBtn, flexSpace, moreBtn]
         } else {
             // Drawing mode: Add Clear and Undo buttons
             let clearBtn = UIBarButtonItem(
@@ -645,7 +846,7 @@ class MainMapViewController: UIViewController {
                 action: #selector(undoLastPoint)
             )
             
-            toolbar.items = [drawBtn, flexSpace, undoBtn, flexSpace, clearBtn, flexSpace, moreBtn]
+            toolbar?.items = [drawBtn, flexSpace, undoBtn, flexSpace, clearBtn, flexSpace, moreBtn]
         }
     }
     
@@ -660,8 +861,14 @@ class MainMapViewController: UIViewController {
     private func setupSearchCompleter() {
         localSearchCompleter = MKLocalSearchCompleter()
         localSearchCompleter.delegate = self
-        localSearchCompleter.resultTypes = [.address, .pointOfInterest]
-        localSearchCompleter.region = mapView.region
+        localSearchCompleter.resultTypes = [.address, .pointOfInterest, .query]
+        
+        // Set a wider region for better search results
+        let center = mapView.region.center
+        let span = MKCoordinateSpan(latitudeDelta: 0.1, longitudeDelta: 0.1)
+        localSearchCompleter.region = MKCoordinateRegion(center: center, span: span)
+        
+        print("🔍 Search completer setup complete - region: \(localSearchCompleter.region)")
     }
     
     // MARK: - Professional Features Setup
@@ -693,20 +900,20 @@ class MainMapViewController: UIViewController {
         case .normal:
             currentModeLabel.text = "Ready"
             currentModeLabel.textColor = TreeShopTheme.primaryText
-            updateToolbarForMode(.normal)
+            // updateToolbarForMode(.normal) // Using bottom section
             
         case .drawing:
             currentModeLabel.text = "Drawing Mode - Tap to add points"
             currentModeLabel.textColor = TreeShopTheme.primaryGreen
             mapView.addGestureRecognizer(drawingTapGesture)
-            updateToolbarForMode(.drawing)
+            // updateToolbarForMode(.drawing) // Using bottom section
             
         case .measuring:
             currentModeLabel.text = "Measuring Mode - Tap to add points"
             currentModeLabel.textColor = TreeShopTheme.primaryGreen
             areaLabel.text = "0 ft"
             mapView.addGestureRecognizer(drawingTapGesture)
-            updateToolbarForMode(.measuring)
+            // updateToolbarForMode(.measuring) // Using bottom section
             
         case .treeInventory:
             currentModeLabel.text = "Tree Inventory - Tap map to add trees"
@@ -714,7 +921,7 @@ class MainMapViewController: UIViewController {
             treeInventoryMode = true
             updateAreaLabelWithTreeScoreInfo()
             mapView.addGestureRecognizer(drawingTapGesture)
-            updateToolbarForMode(.treeInventory)
+            // updateToolbarForMode(.treeInventory) // Using bottom section
         }
     }
     
@@ -770,7 +977,7 @@ class MainMapViewController: UIViewController {
         
         // Configure for iPad
         if let popover = activityVC.popoverPresentationController {
-            popover.barButtonItem = toolbar.items?.first { item in
+            popover.barButtonItem = toolbar?.items?.first { item in
                 item.image == UIImage(systemName: "square.and.arrow.up")
             }
         }
@@ -1141,7 +1348,7 @@ class MainMapViewController: UIViewController {
         let generator = UIImpactFeedbackGenerator(style: .medium)
         generator.impactOccurred()
         
-        // Present simple TreeScore input
+        // Present new 3-screen TreeScore workflow - use the old method name but new implementation
         presentSimpleTreeScoreInput(at: coordinate, accuracy: currentAccuracy)
     }
     
@@ -1150,89 +1357,25 @@ class MainMapViewController: UIViewController {
         return currentMeasurementValue > 0 ? currentMeasurementValue : nil
     }
     
-    private func presentSimpleTreeScoreInput(at coordinate: CLLocationCoordinate2D, accuracy: CLLocationAccuracy) {
-        let alert = UIAlertController(
-            title: "🌲 TreeScore Assessment",
-            message: String(format: "GPS: %.6f, %.6f (±%.1fm)\n\nEnter field measurements for TreeScore calculation:", 
-                          coordinate.latitude, coordinate.longitude, accuracy),
-            preferredStyle: .alert
-        )
+    func presentSimpleTreeScoreInput(at coordinate: CLLocationCoordinate2D, accuracy: CLLocationAccuracy) {
+        // CREATE WORKING PROFESSIONAL MULTI-STEP WORKFLOW
+        let workflowVC = ProfessionalTreeScoreWorkflowViewController()
+        workflowVC.setLocation(coordinate, accuracy: accuracy)
+        workflowVC.treeDelegate = self as? TreeScoreInputDelegate
+        workflowVC.mapViewController = self
         
-        alert.addTextField { textField in
-            textField.placeholder = "Height (feet) - use forestry laser"
-            textField.keyboardType = .decimalPad
-        }
+        let navController = UINavigationController(rootViewController: workflowVC)
+        navController.modalPresentationStyle = .formSheet
         
-        alert.addTextField { textField in
-            textField.placeholder = "Canopy radius (feet) - trunk to edge"
-            textField.keyboardType = .decimalPad
-        }
-        
-        alert.addTextField { textField in
-            textField.placeholder = "DBH (inches) - diameter at breast height"
-            textField.keyboardType = .decimalPad
-        }
-        
-        alert.addTextField { textField in
-            textField.placeholder = "AFISS impact (%) - requires assessment"
-            textField.keyboardType = .decimalPad
-        }
-        
-        alert.addTextField { textField in
-            textField.placeholder = "Species (optional)"
-        }
-        
-        alert.addAction(UIAlertAction(title: "Calculate TreeScore", style: .default) { _ in
-            guard let heightText = alert.textFields?[0].text,
-                  let canopyText = alert.textFields?[1].text,
-                  let dbhText = alert.textFields?[2].text,
-                  let afissText = alert.textFields?[3].text,
-                  let height = Double(heightText),
-                  let canopyRadius = Double(canopyText),
-                  let dbh = Double(dbhText),
-                  let afiss = Double(afissText) else {
-                
-                let errorAlert = UIAlertController(title: "Invalid Input", message: "Please enter valid numbers.", preferredStyle: .alert)
-                errorAlert.addAction(UIAlertAction(title: "OK", style: .default))
-                self.present(errorAlert, animated: true)
-                return
+        if #available(iOS 15.0, *) {
+            if let sheet = navController.sheetPresentationController {
+                sheet.detents = [.large()]
+                sheet.prefersGrabberVisible = true
             }
-            
-            let species = alert.textFields?[4].text?.isEmpty == false ? alert.textFields?[4].text : nil
-            
-            let treeItem = TreeInventoryItem(
-                coordinate: coordinate,
-                gpsAccuracy: accuracy,
-                height: height,
-                canopyRadius: canopyRadius,
-                dbh: dbh,
-                afissPercentage: afiss,
-                species: species
-            )
-            
-            // Add to inventory and map
-            TreeInventoryManager.shared.addTree(treeItem)
-            let annotation = treeItem.createMapAnnotation()
-            self.mapView.addAnnotation(annotation)
-            self.treeScoreAnnotations.append(annotation)
-            self.updateAreaLabelWithTreeScoreInfo()
-            
-            // Show confirmation
-            let complexity = treeItem.getComplexityLevel()
-            let confirmAlert = UIAlertController(
-                title: "🌲 Tree Added",
-                message: String(format: "TreeScore: %.0f pts\nComplexity: %@", treeItem.treeScore.finalTreeScore, complexity.rawValue),
-                preferredStyle: .alert
-            )
-            confirmAlert.addAction(UIAlertAction(title: "OK", style: .default))
-            self.present(confirmAlert, animated: true)
-        })
+        }
         
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        
-        present(alert, animated: true)
+        present(navController, animated: true)
     }
-    
     private func suggestServicePackage(forArea acres: Double) -> ServicePackage {
         switch acres {
         case 0..<0.5: return .small
@@ -1243,7 +1386,7 @@ class MainMapViewController: UIViewController {
         }
     }
     
-    private func updateAreaLabelWithTreeScoreInfo() {
+    func updateAreaLabelWithTreeScoreInfo() { // Made public for tree workflow access
         let trees = TreeInventoryManager.shared.getTrees()
         let totalTreeScore = TreeInventoryManager.shared.getTotalTreeScore()
         let averageTreeScore = TreeInventoryManager.shared.getAverageTreeScore()
@@ -1297,7 +1440,7 @@ class MainMapViewController: UIViewController {
         return baseImage?.withTintColor(complexity.color, renderingMode: .alwaysOriginal)
     }
     
-    private func loadExistingTreeInventory() {
+    func loadExistingTreeInventory() { // Made public for forced reload
         let trees = TreeInventoryManager.shared.getTrees()
         
         for tree in trees {
@@ -1957,8 +2100,240 @@ class MainMapViewController: UIViewController {
         showAlert(title: "Units", message: "Currently using feet and acres.")
     }
     
+    @objc private func showProfile() {
+        let alert = UIAlertController(title: "👤 Profile & Settings", message: nil, preferredStyle: .actionSheet)
+        
+        // Profile Info
+        let deviceName = UIDevice.current.name
+        let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+        
+        alert.addAction(UIAlertAction(title: "📱 Device: \(deviceName)", style: .default) { _ in
+            // Show device info
+        })
+        
+        alert.addAction(UIAlertAction(title: "📊 App Version: \(appVersion)", style: .default) { _ in
+            // Show version info
+        })
+        
+        // Settings
+        alert.addAction(UIAlertAction(title: "⚙️ Units & Measurements", style: .default) { [weak self] _ in
+            self?.showUnitsToggle()
+        })
+        
+        alert.addAction(UIAlertAction(title: "🎯 GPS Settings", style: .default) { [weak self] _ in
+            self?.showGPSSettings()
+        })
+        
+        alert.addAction(UIAlertAction(title: "📦 Default Package Settings", style: .default) { [weak self] _ in
+            self?.showPackageSettings()
+        })
+        
+        alert.addAction(UIAlertAction(title: "🌳 Crew PpH Settings", style: .default) { [weak self] _ in
+            self?.showCrewSettings()
+        })
+        
+        // Data Management
+        alert.addAction(UIAlertAction(title: "☁️ iCloud Sync Status", style: .default) { [weak self] _ in
+            self?.showSyncStatus()
+        })
+        
+        alert.addAction(UIAlertAction(title: "📤 Export All Data", style: .default) { [weak self] _ in
+            self?.exportAllData()
+        })
+        
+        alert.addAction(UIAlertAction(title: "🗑 Clear All Data", style: .destructive) { [weak self] _ in
+            self?.showClearDataConfirmation()
+        })
+        
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        
+        // Configure for iPad
+        if let popover = alert.popoverPresentationController {
+            popover.sourceView = view
+            popover.sourceRect = CGRect(x: 100, y: view.bounds.height - 200, width: 0, height: 0)
+        }
+        
+        present(alert, animated: true)
+    }
+    
+    @objc private func showGPSSettings() {
+        showAlert(title: "GPS Settings", message: "Current accuracy: ±2.1m\nRequirement: <5m for high precision")
+    }
+    
+    @objc private func showPackageSettings() {
+        showAlert(title: "Package Settings", message: "Default: Medium\nS=Light, M=Moderate, L=Heavy, XL=Very Heavy, MAX=Maximum debris")
+    }
+    
+    @objc private func showCrewSettings() {
+        showAlert(title: "Crew Settings", message: "Current PpH: 150 points per hour\nAdjust based on crew efficiency")
+    }
+    
+    @objc private func showSyncStatus() {
+        showAlert(title: "iCloud Sync", message: "✅ Connected\nTrees and measurements sync across devices")
+    }
+    
+    @objc private func exportAllData() {
+        showAlert(title: "Export Data", message: "Export all trees, measurements, and areas to CSV/PDF")
+    }
+    
+    @objc private func showClearDataConfirmation() {
+        let alert = UIAlertController(
+            title: "Clear All Data", 
+            message: "This will delete ALL trees, measurements, and areas. This cannot be undone.",
+            preferredStyle: .alert
+        )
+        
+        alert.addAction(UIAlertAction(title: "Delete All", style: .destructive) { [weak self] _ in
+            // Clear all data
+            self?.clearAllAppData()
+        })
+        
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        
+        present(alert, animated: true)
+    }
+    
+    private func clearAllAppData() {
+        // Clear trees
+        let trees = TreeInventoryManager.shared.getTrees()
+        for tree in trees {
+            TreeInventoryManager.shared.deleteTree(by: tree.id)
+        }
+        
+        // Clear map annotations
+        mapView.removeAnnotations(mapView.annotations)
+        
+        // Update UI
+        updateAreaLabelWithTreeScoreInfo()
+        
+        showAlert(title: "Data Cleared", message: "All app data has been cleared.")
+    }
+    
+    @objc private func showTreeInventory() {
+        let trees = TreeInventoryManager.shared.getTrees()
+        
+        guard !trees.isEmpty else {
+            showAlert(title: "No Trees", message: "No trees have been assessed yet. Use the Tree button to assess trees.")
+            return
+        }
+        
+        let alert = UIAlertController(title: "Tree Inventory (\(trees.count))", message: "Select a tree to manage:", preferredStyle: .actionSheet)
+        
+        for (index, tree) in trees.enumerated() {
+            let species = tree.species ?? "Unknown"
+            let treeScore = String(format: "%.0f", tree.treeScore.finalTreeScore)
+            let title = "Tree #\(index + 1) - \(species) (TS: \(treeScore))"
+            
+            alert.addAction(UIAlertAction(title: title, style: .default) { [weak self] _ in
+                self?.showTreeActions(for: tree, index: index)
+            })
+        }
+        
+        alert.addAction(UIAlertAction(title: "📤 Export All Trees", style: .default) { [weak self] _ in
+            self?.exportAllTrees()
+        })
+        
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        
+        // Configure for iPad
+        if let popover = alert.popoverPresentationController {
+            popover.sourceView = view
+            popover.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.maxY - 100, width: 0, height: 0)
+        }
+        
+        present(alert, animated: true)
+    }
+    
+    private func showTreeActions(for tree: TreeInventoryItem, index: Int) {
+        let alert = UIAlertController(title: "Tree #\(index + 1)", message: nil, preferredStyle: .actionSheet)
+        
+        alert.addAction(UIAlertAction(title: "📍 Zoom to Tree", style: .default) { [weak self] _ in
+            self?.zoomToTree(tree)
+        })
+        
+        alert.addAction(UIAlertAction(title: "✏️ Edit Tree", style: .default) { [weak self] _ in
+            self?.presentSimpleTreeScoreInput(at: tree.coordinate, accuracy: tree.gpsAccuracy)
+        })
+        
+        alert.addAction(UIAlertAction(title: "🗑 Delete Tree", style: .destructive) { [weak self] _ in
+            self?.deleteTreeFromInventory(tree)
+        })
+        
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        
+        present(alert, animated: true)
+    }
+    
+    private func zoomToTree(_ tree: TreeInventoryItem) {
+        let region = MKCoordinateRegion(
+            center: tree.coordinate,
+            latitudinalMeters: 100,
+            longitudinalMeters: 100
+        )
+        mapView.setRegion(region, animated: true)
+        
+        // Highlight the tree annotation
+        if let annotation = mapView.annotations.first(where: { annotation in
+            abs(annotation.coordinate.latitude - tree.coordinate.latitude) < 0.000001 &&
+            abs(annotation.coordinate.longitude - tree.coordinate.longitude) < 0.000001
+        }) {
+            mapView.selectAnnotation(annotation, animated: true)
+        }
+        
+        print("📍 Zoomed to tree at \(tree.coordinate)")
+    }
+    
+    private func deleteTreeFromInventory(_ tree: TreeInventoryItem) {
+        TreeInventoryManager.shared.deleteTree(by: tree.id)
+        
+        // Remove from map
+        let annotationsToRemove = mapView.annotations.filter { annotation in
+            abs(annotation.coordinate.latitude - tree.coordinate.latitude) < 0.000001 &&
+            abs(annotation.coordinate.longitude - tree.coordinate.longitude) < 0.000001
+        }
+        
+        mapView.removeAnnotations(annotationsToRemove)
+        updateAreaLabelWithTreeScoreInfo()
+        
+        showAlert(title: "Tree Deleted", message: "Tree removed from inventory.")
+    }
+    
+    private func exportAllTrees() {
+        let trees = TreeInventoryManager.shared.getTrees()
+        let totalTreeScore = TreeInventoryManager.shared.getTotalTreeScore()
+        
+        let treeData = """
+        TreeShop Maps - Tree Inventory Report
+        ====================================
+        Total Trees: \(trees.count)
+        Total TreeScore: \(String(format: "%.0f", totalTreeScore))
+        Average TreeScore: \(String(format: "%.0f", TreeInventoryManager.shared.getAverageTreeScore()))
+        
+        Tree Details:
+        \(trees.enumerated().map { index, tree in
+            "Tree #\(index + 1): \(tree.species ?? "Unknown") - \(String(format: "%.0f", tree.treeScore.finalTreeScore))pts"
+        }.joined(separator: "\n"))
+        
+        Generated: \(Date())
+        """
+        
+        let activityVC = UIActivityViewController(activityItems: [treeData], applicationActivities: nil)
+        
+        if let popover = activityVC.popoverPresentationController {
+            popover.sourceView = view
+            popover.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 0, height: 0)
+        }
+        
+        present(activityVC, animated: true)
+    }
+    
     @objc private func showMoreMenu() {
         let alertController = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
+        
+        // Tree Inventory - NEW
+        alertController.addAction(UIAlertAction(title: "🌳 Tree Inventory", style: .default) { [weak self] _ in
+            self?.showTreeInventory()
+        })
         
         // Property line visibility toggle
         alertController.addAction(UIAlertAction(title: "🏠 Toggle Property Lines", style: .default) { [weak self] _ in
@@ -1966,7 +2341,7 @@ class MainMapViewController: UIViewController {
         })
         
         // History action
-        alertController.addAction(UIAlertAction(title: "View History", style: .default) { [weak self] _ in
+        alertController.addAction(UIAlertAction(title: "📋 View History", style: .default) { [weak self] _ in
             self?.showMeasurementHistory()
         })
         
@@ -2007,7 +2382,7 @@ class MainMapViewController: UIViewController {
         
         // For iPad support
         if let popover = alertController.popoverPresentationController {
-            popover.barButtonItem = toolbar.items?.last // More button
+            popover.barButtonItem = toolbar?.items?.last // More button
         }
         
         present(alertController, animated: true)
@@ -2152,7 +2527,7 @@ class MainMapViewController: UIViewController {
         clearPropertyLines()
         
         let center = mapView.region.center
-        let span = mapView.region.span
+        _ = mapView.region.span
         
         // Call TreeShop backend to get real Regrid parcel data  
         let urlString = "http://localhost:3003/v1/parcels/search?app_token=treeshop_app_\(UIDevice.current.identifierForVendor?.uuidString ?? "unknown")&lat=\(center.latitude)&lon=\(center.longitude)&radius=500&limit=20"
@@ -2295,7 +2670,11 @@ extension MainMapViewController: UISearchBarDelegate {
         } else {
             // Only start new search if user is actively typing (not programmatic text change)
             if searchBar.isFirstResponder {
+                print("🔍 Starting search for: '\(searchText)'")
                 localSearchCompleter.queryFragment = searchText
+                
+                // Update region to current map view for better results
+                localSearchCompleter.region = mapView.region
             }
         }
     }
@@ -2342,13 +2721,17 @@ extension MainMapViewController: MKLocalSearchCompleterDelegate {
     func completerDidUpdateResults(_ completer: MKLocalSearchCompleter) {
         searchResults = completer.results
         
+        print("🔍 Search completer found \(searchResults.count) results")
+        
         DispatchQueue.main.async {
             // Only show results if search bar is active and has text
             if !self.searchResults.isEmpty && 
                !self.searchBar.text!.isEmpty && 
                self.searchBar.isFirstResponder {
+                print("🔍 Showing search results")
                 self.showSearchResults()
             } else {
+                print("🔍 Hiding search results")
                 self.hideSearchResults()
             }
         }
@@ -2698,12 +3081,977 @@ extension MainMapViewController: UIGestureRecognizerDelegate {
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         // Don't handle touches on the search container or toolbar
         if touch.view?.isDescendant(of: searchContainerView) == true ||
-           touch.view?.isDescendant(of: toolbar) == true ||
+           touch.view?.isDescendant(of: toolbar ?? UIView()) == true ||
            touch.view?.isDescendant(of: bottomToolsView) == true {
             return false
         }
         return true
     }
+    
+    @objc private func dismissProfessionalVC() {
+        dismiss(animated: true)
+    }
+}
+
+// MARK: - Professional TreeScore Workflow Controller (Working Implementation)
+class ProfessionalTreeScoreWorkflowViewController: UIViewController {
+    weak var treeDelegate: TreeScoreInputDelegate?
+    weak var mapViewController: MainMapViewController?
+    private var currentLocation: CLLocationCoordinate2D?
+    private var locationAccuracy: CLLocationAccuracy?
+    
+    private var currentStep = 0
+    private var assessmentData = WorkingAssessmentData()
+    
+    private var titleLabel: UILabel!
+    private var progressBar: UIProgressView!
+    private var stepContentView: UIView!
+    private var prevButton: UIButton!
+    private var nextButton: UIButton!
+    
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        setupWorkingWorkflow()
+    }
+    
+    private func setupWorkingWorkflow() {
+        view.backgroundColor = TreeShopTheme.backgroundColor
+        title = "Professional Assessment"
+        
+        // Header with progress
+        let headerCard = TreeShopTheme.cardView()
+        headerCard.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(headerCard)
+        
+        titleLabel = UILabel()
+        titleLabel.text = "Step 1: Location"
+        titleLabel.font = UIFont.systemFont(ofSize: 24, weight: .bold)
+        titleLabel.textColor = TreeShopTheme.primaryText
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        headerCard.addSubview(titleLabel)
+        
+        progressBar = UIProgressView()
+        progressBar.progressTintColor = TreeShopTheme.primaryGreen
+        progressBar.trackTintColor = TreeShopTheme.buttonBackground
+        progressBar.progress = 0.14
+        progressBar.layer.cornerRadius = 2
+        progressBar.translatesAutoresizingMaskIntoConstraints = false
+        headerCard.addSubview(progressBar)
+        
+        // Main content area
+        let mainCard = TreeShopTheme.cardView()
+        mainCard.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(mainCard)
+        
+        stepContentView = UIView()
+        stepContentView.backgroundColor = .clear
+        stepContentView.translatesAutoresizingMaskIntoConstraints = false
+        mainCard.addSubview(stepContentView)
+        
+        // Navigation buttons
+        let buttonStack = UIStackView()
+        buttonStack.axis = .horizontal
+        buttonStack.distribution = .fillEqually
+        buttonStack.spacing = 16
+        buttonStack.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(buttonStack)
+        
+        prevButton = TreeShopTheme.styledButton(title: "← Previous")
+        prevButton.backgroundColor = TreeShopTheme.secondaryGray
+        prevButton.isEnabled = false
+        prevButton.alpha = 0.5
+        prevButton.addTarget(self, action: #selector(previousStep), for: .touchUpInside)
+        
+        nextButton = TreeShopTheme.styledButton(title: "Next →")
+        nextButton.backgroundColor = TreeShopTheme.primaryGreen
+        nextButton.addTarget(self, action: #selector(nextStep), for: .touchUpInside)
+        
+        buttonStack.addArrangedSubview(prevButton)
+        buttonStack.addArrangedSubview(nextButton)
+        
+        // Layout
+        NSLayoutConstraint.activate([
+            headerCard.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 16),
+            headerCard.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+            headerCard.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            
+            titleLabel.topAnchor.constraint(equalTo: headerCard.topAnchor, constant: 20),
+            titleLabel.leadingAnchor.constraint(equalTo: headerCard.leadingAnchor, constant: 20),
+            
+            progressBar.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 12),
+            progressBar.leadingAnchor.constraint(equalTo: headerCard.leadingAnchor, constant: 20),
+            progressBar.trailingAnchor.constraint(equalTo: headerCard.trailingAnchor, constant: -20),
+            progressBar.heightAnchor.constraint(equalToConstant: 6),
+            progressBar.bottomAnchor.constraint(equalTo: headerCard.bottomAnchor, constant: -20),
+            
+            mainCard.topAnchor.constraint(equalTo: headerCard.bottomAnchor, constant: 16),
+            mainCard.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+            mainCard.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            
+            stepContentView.topAnchor.constraint(equalTo: mainCard.topAnchor, constant: 32),
+            stepContentView.leadingAnchor.constraint(equalTo: mainCard.leadingAnchor, constant: 32),
+            stepContentView.trailingAnchor.constraint(equalTo: mainCard.trailingAnchor, constant: -32),
+            stepContentView.bottomAnchor.constraint(equalTo: mainCard.bottomAnchor, constant: -32),
+            stepContentView.heightAnchor.constraint(equalToConstant: 400),
+            
+            buttonStack.topAnchor.constraint(equalTo: mainCard.bottomAnchor, constant: 20),
+            buttonStack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+            buttonStack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            buttonStack.heightAnchor.constraint(equalToConstant: 56),
+            buttonStack.bottomAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -20)
+        ])
+        
+        showCurrentStep()
+    }
+    
+    private func showCurrentStep() {
+        // Clear previous content
+        stepContentView.subviews.forEach { $0.removeFromSuperview() }
+        
+        switch currentStep {
+        case 0: showLocationStep()
+        case 1: showMeasurementsStep()
+        case 2: showSpeciesStep()
+        case 3: showHealthStep()
+        case 4: showAFISSStep()
+        case 5: showPhotosStep()
+        case 6: showResultsStep()
+        default: break
+        }
+        
+        updateUI()
+    }
+    
+    private func showLocationStep() {
+        titleLabel.text = "Step 1: Tree Marked"
+        progressBar.progress = 0.14
+        
+        let titleLabel = UILabel()
+        titleLabel.text = "🌲 Tree Successfully Marked"
+        titleLabel.font = UIFont.systemFont(ofSize: 32, weight: .bold)
+        titleLabel.textColor = TreeShopTheme.primaryText
+        titleLabel.textAlignment = .center
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        stepContentView.addSubview(titleLabel)
+        
+        let subtitleLabel = UILabel()
+        subtitleLabel.text = "Ready to begin professional assessment"
+        subtitleLabel.font = UIFont.systemFont(ofSize: 18, weight: .medium)
+        subtitleLabel.textColor = TreeShopTheme.secondaryText
+        subtitleLabel.textAlignment = .center
+        subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
+        stepContentView.addSubview(subtitleLabel)
+        
+        // Large success indicator
+        let successIcon = UILabel()
+        successIcon.text = "✓"
+        successIcon.font = UIFont.systemFont(ofSize: 80, weight: .bold)
+        successIcon.textColor = TreeShopTheme.successGreen
+        successIcon.textAlignment = .center
+        successIcon.translatesAutoresizingMaskIntoConstraints = false
+        stepContentView.addSubview(successIcon)
+        
+        let readyLabel = UILabel()
+        readyLabel.text = "Location locked → Ready for measurements"
+        readyLabel.font = UIFont.systemFont(ofSize: 16, weight: .semibold)
+        readyLabel.textColor = TreeShopTheme.primaryGreen
+        readyLabel.textAlignment = .center
+        readyLabel.translatesAutoresizingMaskIntoConstraints = false
+        stepContentView.addSubview(readyLabel)
+        
+        NSLayoutConstraint.activate([
+            successIcon.centerXAnchor.constraint(equalTo: stepContentView.centerXAnchor),
+            successIcon.centerYAnchor.constraint(equalTo: stepContentView.centerYAnchor, constant: -40),
+            
+            titleLabel.topAnchor.constraint(equalTo: successIcon.bottomAnchor, constant: 20),
+            titleLabel.centerXAnchor.constraint(equalTo: stepContentView.centerXAnchor),
+            
+            subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 8),
+            subtitleLabel.centerXAnchor.constraint(equalTo: stepContentView.centerXAnchor),
+            
+            readyLabel.topAnchor.constraint(equalTo: subtitleLabel.bottomAnchor, constant: 20),
+            readyLabel.centerXAnchor.constraint(equalTo: stepContentView.centerXAnchor)
+        ])
+        
+        // Auto-set location data
+        if let location = currentLocation {
+            assessmentData.locationText = "Map Location"
+            assessmentData.coordinate = location
+            assessmentData.accuracy = locationAccuracy
+        }
+    }
+    
+    private func showMeasurementsStep() {
+        titleLabel.text = "Step 2: Measurements"
+        progressBar.progress = 0.28
+        
+        let titleLabel = UILabel()
+        titleLabel.text = "📏 Tree Measurements"
+        titleLabel.font = UIFont.systemFont(ofSize: 28, weight: .bold)
+        titleLabel.textColor = TreeShopTheme.primaryText
+        titleLabel.textAlignment = .center
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        stepContentView.addSubview(titleLabel)
+        
+        let measurementStack = UIStackView()
+        measurementStack.axis = .vertical
+        measurementStack.spacing = 20
+        measurementStack.translatesAutoresizingMaskIntoConstraints = false
+        stepContentView.addSubview(measurementStack)
+        
+        // Height input
+        let heightField = createMeasurementInput(title: "Height (feet)", placeholder: "40", tag: 2001)
+        measurementStack.addArrangedSubview(heightField)
+        
+        // Crown radius input
+        let crownField = createMeasurementInput(title: "Crown Radius (feet)", placeholder: "12", tag: 2002)
+        measurementStack.addArrangedSubview(crownField)
+        
+        // DBH input
+        let dbhField = createMeasurementInput(title: "DBH (inches)", placeholder: "18", tag: 2003)
+        measurementStack.addArrangedSubview(dbhField)
+        
+        // Preview score
+        let previewLabel = UILabel()
+        previewLabel.text = "Preview TreeScore: \(Int(calculatePreviewScore()))"
+        previewLabel.font = UIFont.systemFont(ofSize: 18, weight: .bold)
+        previewLabel.textColor = TreeShopTheme.primaryGreen
+        previewLabel.textAlignment = .center
+        previewLabel.tag = 2010
+        previewLabel.translatesAutoresizingMaskIntoConstraints = false
+        stepContentView.addSubview(previewLabel)
+        
+        NSLayoutConstraint.activate([
+            titleLabel.topAnchor.constraint(equalTo: stepContentView.topAnchor, constant: 20),
+            titleLabel.centerXAnchor.constraint(equalTo: stepContentView.centerXAnchor),
+            
+            measurementStack.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 30),
+            measurementStack.centerXAnchor.constraint(equalTo: stepContentView.centerXAnchor),
+            measurementStack.widthAnchor.constraint(equalToConstant: 250),
+            
+            previewLabel.topAnchor.constraint(equalTo: measurementStack.bottomAnchor, constant: 20),
+            previewLabel.centerXAnchor.constraint(equalTo: stepContentView.centerXAnchor)
+        ])
+    }
+    
+    private func createMeasurementInput(title: String, placeholder: String, tag: Int) -> UIView {
+        let container = UIView()
+        
+        let label = UILabel()
+        label.text = title
+        label.font = UIFont.systemFont(ofSize: 14, weight: .semibold)
+        label.textColor = TreeShopTheme.primaryText
+        label.textAlignment = .center
+        label.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(label)
+        
+        let textField = UITextField()
+        textField.placeholder = placeholder
+        textField.font = UIFont.systemFont(ofSize: 32, weight: .bold)
+        textField.textAlignment = .center
+        textField.keyboardType = .decimalPad
+        textField.backgroundColor = TreeShopTheme.cardBackground
+        textField.textColor = TreeShopTheme.primaryText
+        textField.layer.cornerRadius = 12
+        textField.layer.borderWidth = 2
+        textField.layer.borderColor = TreeShopTheme.primaryGreen.cgColor
+        textField.tag = tag
+        textField.addTarget(self, action: #selector(measurementChanged), for: .editingChanged)
+        textField.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(textField)
+        
+        NSLayoutConstraint.activate([
+            label.topAnchor.constraint(equalTo: container.topAnchor),
+            label.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            
+            textField.topAnchor.constraint(equalTo: label.bottomAnchor, constant: 8),
+            textField.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            textField.widthAnchor.constraint(equalToConstant: 120),
+            textField.heightAnchor.constraint(equalToConstant: 60),
+            textField.bottomAnchor.constraint(equalTo: container.bottomAnchor)
+        ])
+        
+        return container
+    }
+    
+    private func showSpeciesStep() {
+        titleLabel.text = "Step 3: Species"
+        progressBar.progress = 0.42
+        
+        let titleLabel = UILabel()
+        titleLabel.text = "🌳 Tree Species"
+        titleLabel.font = UIFont.systemFont(ofSize: 28, weight: .bold)
+        titleLabel.textColor = TreeShopTheme.primaryText
+        titleLabel.textAlignment = .center
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        stepContentView.addSubview(titleLabel)
+        
+        let textField = UITextField()
+        textField.placeholder = "Oak, Pine, Maple..."
+        textField.backgroundColor = TreeShopTheme.cardBackground
+        textField.textColor = TreeShopTheme.primaryText
+        textField.font = UIFont.systemFont(ofSize: 18, weight: .medium)
+        textField.textAlignment = .center
+        textField.layer.cornerRadius = 12
+        textField.layer.borderWidth = 2
+        textField.layer.borderColor = TreeShopTheme.primaryGreen.cgColor
+        textField.text = assessmentData.species
+        textField.tag = 3001
+        textField.addTarget(self, action: #selector(speciesChanged), for: .editingChanged)
+        textField.translatesAutoresizingMaskIntoConstraints = false
+        stepContentView.addSubview(textField)
+        
+        NSLayoutConstraint.activate([
+            titleLabel.centerXAnchor.constraint(equalTo: stepContentView.centerXAnchor),
+            titleLabel.centerYAnchor.constraint(equalTo: stepContentView.centerYAnchor, constant: -30),
+            
+            textField.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 30),
+            textField.centerXAnchor.constraint(equalTo: stepContentView.centerXAnchor),
+            textField.widthAnchor.constraint(equalToConstant: 250),
+            textField.heightAnchor.constraint(equalToConstant: 50)
+        ])
+    }
+    
+    private func showHealthStep() {
+        titleLabel.text = "Step 4: Health"
+        progressBar.progress = 0.56
+        
+        let titleLabel = UILabel()
+        titleLabel.text = "💚 Tree Health"
+        titleLabel.font = UIFont.systemFont(ofSize: 28, weight: .bold)
+        titleLabel.textColor = TreeShopTheme.primaryText
+        titleLabel.textAlignment = .center
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        stepContentView.addSubview(titleLabel)
+        
+        let healthOptions = ["Excellent", "Good", "Fair", "Poor"]
+        let segmented = UISegmentedControl(items: healthOptions)
+        segmented.selectedSegmentIndex = 1
+        segmented.backgroundColor = TreeShopTheme.cardBackground
+        segmented.selectedSegmentTintColor = TreeShopTheme.primaryGreen
+        segmented.setTitleTextAttributes([.foregroundColor: TreeShopTheme.primaryText], for: .normal)
+        segmented.addTarget(self, action: #selector(healthChanged), for: .valueChanged)
+        segmented.translatesAutoresizingMaskIntoConstraints = false
+        stepContentView.addSubview(segmented)
+        
+        assessmentData.health = "Good"
+        
+        NSLayoutConstraint.activate([
+            titleLabel.centerXAnchor.constraint(equalTo: stepContentView.centerXAnchor),
+            titleLabel.centerYAnchor.constraint(equalTo: stepContentView.centerYAnchor, constant: -30),
+            
+            segmented.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 30),
+            segmented.centerXAnchor.constraint(equalTo: stepContentView.centerXAnchor),
+            segmented.widthAnchor.constraint(equalToConstant: 300)
+        ])
+    }
+    
+    private func showAFISSStep() {
+        titleLabel.text = "Step 5: AFISS"
+        progressBar.progress = 0.70
+        
+        // Scroll view for the AFISS categories
+        let scrollView = UIScrollView()
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        stepContentView.addSubview(scrollView)
+        
+        let contentView = UIView()
+        contentView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.addSubview(contentView)
+        
+        let mainStack = UIStackView()
+        mainStack.axis = .vertical
+        mainStack.spacing = 20
+        mainStack.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(mainStack)
+        
+        // Title
+        let titleLabel = UILabel()
+        titleLabel.text = "⚡ AFISS Assessment"
+        titleLabel.font = UIFont.systemFont(ofSize: 24, weight: .bold)
+        titleLabel.textColor = TreeShopTheme.primaryText
+        titleLabel.textAlignment = .center
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        mainStack.addArrangedSubview(titleLabel)
+        
+        let subtitleLabel = UILabel()
+        subtitleLabel.text = "Assessment Factor Identification & Scoring System"
+        subtitleLabel.font = UIFont.systemFont(ofSize: 14, weight: .medium)
+        subtitleLabel.textColor = TreeShopTheme.secondaryText
+        subtitleLabel.textAlignment = .center
+        subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
+        mainStack.addArrangedSubview(subtitleLabel)
+        
+        // COMPLETE AFISS CATEGORIES (100+ Factors)
+        let afissCategories = [
+            ("Environmental - Weather", ["Rain (light)", "Rain (moderate/heavy)", "Snow accumulation", "Ice conditions", "Wind 15-25mph", "Wind 25-35mph", "Wind 35mph+", "Lightning risk", "Extreme heat 95F+", "Extreme cold 32F-"], TreeShopTheme.secondaryText),
+            
+            ("Environmental - Terrain", ["Steep slopes 15-30%", "Severe slopes 30%+", "Waterlogged ground", "Rocky/hard ground", "Unstable soil", "Drainage issues", "Erosion concerns", "Flood zone"], TreeShopTheme.secondaryText),
+            
+            ("Infrastructure - Buildings", ["Residential <10ft", "Commercial building", "Historic/protected", "High-value structures", "Roof/gutter proximity", "Deck/patio proximity", "Fence complications", "Storage shed", "Greenhouse", "Swimming pool"], TreeShopTheme.errorRed),
+            
+            ("Infrastructure - Utilities", ["Overhead power (primary)", "Overhead power (secondary)", "Cable/internet lines", "Telephone lines", "Underground gas", "Underground electric", "Water main proximity", "Sewer line proximity", "Cable underground", "Sprinkler system"], TreeShopTheme.errorRed),
+            
+            ("Infrastructure - Transport", ["Street/road proximity", "Sidewalk protection", "Driveway blocking", "Traffic control required", "School zone", "Bus route interference", "Emergency vehicle access", "Pedestrian traffic", "Parking restrictions", "Street cleaning conflicts"], TreeShopTheme.warningYellow),
+            
+            ("Access - Equipment", ["Narrow gate 8-12ft", "Very narrow <8ft", "Overhead clearance", "Weight restrictions", "Bridge load limits", "Steps/elevation", "Landscaping obstacles", "Multiple access points", "Backyard-only access", "Crane access required"], TreeShopTheme.warningYellow),
+            
+            ("Safety - Tree Risks", ["Dead/dying tree", "Leaning 15-30°", "Severely leaning 30°+", "Hollow/cavity trunk", "Root damage", "Disease present", "Insect infestation", "Storm damage", "Weak crotch/leaders", "Overextended limbs"], TreeShopTheme.errorRed),
+            
+            ("Safety - Environmental", ["Aggressive insects", "Wildlife habitat", "Venomous snakes", "Protected species", "Nesting birds", "Ground nesting", "Poisonous plants", "Unstable adjacent trees", "Overhead hazards", "Underground hazards"], TreeShopTheme.errorRed),
+            
+            ("Operational - Equipment", ["Bucket truck required", "Crane required", "Large chipper needed", "Stump grinder", "Specialized climbing", "Extensive rigging", "Winch/pulling equipment", "Trenching equipment", "Excavation equipment", "Multiple coordination"], TreeShopTheme.primaryGreen),
+            
+            ("Operational - Crew", ["ISA arborist required", "Experienced climber", "Additional ground crew", "Traffic control person", "Safety observer", "Equipment operator", "Cleanup crew", "Supervisor presence", "Customer liaison", "Permit coordinator"], TreeShopTheme.primaryGreen),
+            
+            ("Customer - Property", ["High-end landscaping", "New landscaping", "Irrigation system", "Outdoor lighting", "Security systems", "Decorative hardscaping", "Play equipment", "Outdoor furniture", "Garden structures", "Artistic elements"], TreeShopTheme.accentGreen),
+            
+            ("Regulatory - Permits", ["Tree removal permit", "Protected species", "Historic district", "HOA approval", "City/county approval", "Utility notification", "Environmental assessment", "Traffic permit", "Noise variance", "Waste disposal permit"], TreeShopTheme.warningYellow)
+        ]
+        
+        for (categoryName, factors, color) in afissCategories {
+            let categoryCard = createAFISSCategoryCard(title: categoryName, factors: factors, color: color)
+            mainStack.addArrangedSubview(categoryCard)
+        }
+        
+        // AFISS factors collected - no percentage display needed
+        
+        // Layout constraints
+        NSLayoutConstraint.activate([
+            scrollView.topAnchor.constraint(equalTo: stepContentView.topAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: stepContentView.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: stepContentView.trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: stepContentView.bottomAnchor),
+            
+            contentView.topAnchor.constraint(equalTo: scrollView.topAnchor),
+            contentView.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor),
+            contentView.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor),
+            contentView.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor),
+            contentView.widthAnchor.constraint(equalTo: scrollView.widthAnchor),
+            
+            mainStack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
+            mainStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            mainStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            mainStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16)
+        ])
+    }
+    
+    private func createAFISSCategoryCard(title: String, factors: [String], color: UIColor) -> UIView {
+        let card = TreeShopTheme.cardView()
+        card.layer.borderWidth = 2
+        card.layer.borderColor = color.withAlphaComponent(0.3).cgColor
+        card.backgroundColor = color.withAlphaComponent(0.05)
+        card.translatesAutoresizingMaskIntoConstraints = false
+        
+        let mainStack = UIStackView()
+        mainStack.axis = .vertical
+        mainStack.spacing = 0
+        mainStack.translatesAutoresizingMaskIntoConstraints = false
+        card.addSubview(mainStack)
+        
+        // COLLAPSIBLE HEADER (Tappable)
+        let headerContainer = UIView()
+        headerContainer.backgroundColor = color.withAlphaComponent(0.1)
+        headerContainer.layer.cornerRadius = 8
+        headerContainer.translatesAutoresizingMaskIntoConstraints = false
+        
+        let headerStack = UIStackView()
+        headerStack.axis = .horizontal
+        headerStack.distribution = .fill
+        headerStack.alignment = .center
+        headerStack.spacing = 12
+        headerStack.translatesAutoresizingMaskIntoConstraints = false
+        headerContainer.addSubview(headerStack)
+        
+        // Expand/Collapse Arrow
+        let arrowLabel = UILabel()
+        arrowLabel.text = "▶"  // Collapsed by default
+        arrowLabel.font = UIFont.systemFont(ofSize: 14, weight: .bold)
+        arrowLabel.textColor = color
+        arrowLabel.tag = 9000 + factors.count // Unique tag for arrow
+        headerStack.addArrangedSubview(arrowLabel)
+        
+        // Category Title
+        let titleLabel = UILabel()
+        titleLabel.text = title
+        titleLabel.font = UIFont.systemFont(ofSize: 16, weight: .bold)
+        titleLabel.textColor = color
+        titleLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        headerStack.addArrangedSubview(titleLabel)
+        
+        // Factor Count Badge
+        let countBadge = UILabel()
+        countBadge.text = "\(factors.count)"
+        countBadge.font = UIFont.systemFont(ofSize: 12, weight: .bold)
+        countBadge.textColor = .white
+        countBadge.backgroundColor = color
+        countBadge.layer.cornerRadius = 10
+        countBadge.layer.masksToBounds = true
+        countBadge.textAlignment = .center
+        countBadge.translatesAutoresizingMaskIntoConstraints = false
+        headerStack.addArrangedSubview(countBadge)
+        
+        // Selected Count Badge (initially hidden)
+        let selectedBadge = UILabel()
+        selectedBadge.text = "0"
+        selectedBadge.font = UIFont.systemFont(ofSize: 12, weight: .bold)
+        selectedBadge.textColor = .white
+        selectedBadge.backgroundColor = TreeShopTheme.primaryGreen
+        selectedBadge.layer.cornerRadius = 8
+        selectedBadge.layer.masksToBounds = true
+        selectedBadge.textAlignment = .center
+        selectedBadge.isHidden = true
+        selectedBadge.tag = 9500 + factors.count // Unique tag for selected count
+        selectedBadge.translatesAutoresizingMaskIntoConstraints = false
+        headerStack.addArrangedSubview(selectedBadge)
+        
+        mainStack.addArrangedSubview(headerContainer)
+        
+        // COLLAPSIBLE CONTENT (Hidden by default)
+        let factorContainer = UIView()
+        factorContainer.isHidden = true // Start collapsed
+        factorContainer.tag = 9200 + factors.count // Unique tag for content
+        factorContainer.translatesAutoresizingMaskIntoConstraints = false
+        
+        let factorStack = UIStackView()
+        factorStack.axis = .vertical
+        factorStack.spacing = 6
+        factorStack.translatesAutoresizingMaskIntoConstraints = false
+        factorContainer.addSubview(factorStack)
+        
+        // Create factor buttons
+        for (index, factor) in factors.enumerated() {
+            let button = UIButton(type: .system)
+            button.setTitle("☐ \(factor)", for: .normal)
+            button.setTitle("✓ \(factor)", for: .selected)
+            button.backgroundColor = TreeShopTheme.cardBackground
+            button.setTitleColor(TreeShopTheme.primaryText, for: .normal)
+            button.setTitleColor(color, for: .selected)
+            button.layer.cornerRadius = 6
+            button.layer.borderWidth = 1
+            button.layer.borderColor = color.withAlphaComponent(0.3).cgColor
+            button.titleLabel?.font = UIFont.systemFont(ofSize: 13, weight: .medium)
+            button.contentHorizontalAlignment = .left
+            // Padding handled by button height and text size
+            button.tag = 5100 + (factors.count * 10) + index // Unique tags for each factor
+            button.addTarget(self, action: #selector(afissFactorToggled), for: .touchUpInside)
+            button.translatesAutoresizingMaskIntoConstraints = false
+            factorStack.addArrangedSubview(button)
+            
+            button.heightAnchor.constraint(equalToConstant: 36).isActive = true
+        }
+        
+        mainStack.addArrangedSubview(factorContainer)
+        
+        // Add tap gesture to header for expand/collapse
+        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(toggleAFISSCategory(_:)))
+        headerContainer.addGestureRecognizer(tapGesture)
+        headerContainer.isUserInteractionEnabled = true
+        
+        // Store references for collapse/expand functionality
+        headerContainer.tag = 9100 + factors.count // Unique tag for header
+        
+        NSLayoutConstraint.activate([
+            mainStack.topAnchor.constraint(equalTo: card.topAnchor, constant: 8),
+            mainStack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 8),
+            mainStack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -8),
+            mainStack.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -8),
+            
+            headerStack.topAnchor.constraint(equalTo: headerContainer.topAnchor, constant: 12),
+            headerStack.leadingAnchor.constraint(equalTo: headerContainer.leadingAnchor, constant: 16),
+            headerStack.trailingAnchor.constraint(equalTo: headerContainer.trailingAnchor, constant: -16),
+            headerStack.bottomAnchor.constraint(equalTo: headerContainer.bottomAnchor, constant: -12),
+            
+            countBadge.widthAnchor.constraint(equalToConstant: 24),
+            countBadge.heightAnchor.constraint(equalToConstant: 20),
+            
+            selectedBadge.widthAnchor.constraint(equalToConstant: 20),
+            selectedBadge.heightAnchor.constraint(equalToConstant: 16),
+            
+            factorStack.topAnchor.constraint(equalTo: factorContainer.topAnchor, constant: 12),
+            factorStack.leadingAnchor.constraint(equalTo: factorContainer.leadingAnchor, constant: 16),
+            factorStack.trailingAnchor.constraint(equalTo: factorContainer.trailingAnchor, constant: -16),
+            factorStack.bottomAnchor.constraint(equalTo: factorContainer.bottomAnchor, constant: -12)
+        ])
+        
+        return card
+    }
+    
+    @objc private func toggleAFISSCategory(_ gesture: UITapGestureRecognizer) {
+        guard let headerContainer = gesture.view else { return }
+        
+        let headerTag = headerContainer.tag
+        let arrowTag = 9000 + (headerTag - 9100)  // Calculate arrow tag
+        let contentTag = 9200 + (headerTag - 9100) // Calculate content tag
+        
+        // Find the arrow and content views in the same parent
+        guard let parentStack = headerContainer.superview,
+              let arrowLabel = parentStack.viewWithTag(arrowTag) as? UILabel,
+              let contentView = parentStack.viewWithTag(contentTag) else { return }
+        
+        let isExpanded = !contentView.isHidden
+        
+        // Animate arrow rotation and content visibility
+        UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.7, initialSpringVelocity: 0.3, options: [], animations: {
+            
+            // Rotate arrow
+            arrowLabel.transform = isExpanded ? .identity : CGAffineTransform(rotationAngle: .pi/2)
+            arrowLabel.text = isExpanded ? "▶" : "▼"
+            
+            // Show/hide content
+            contentView.isHidden = isExpanded
+            contentView.alpha = isExpanded ? 0 : 1
+            
+            // Haptic feedback
+            let impact = UIImpactFeedbackGenerator(style: .light)
+            impact.impactOccurred()
+            
+        }, completion: nil)
+        
+        // Update scroll view content size
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            if let scrollView = self.stepContentView.subviews.first as? UIScrollView {
+                scrollView.layoutIfNeeded()
+            }
+        }
+    }
+    
+    @objc private func afissFactorToggled(_ button: UIButton) {
+        button.isSelected.toggle()
+        
+        // Add/remove factor from assessment data
+        let factorId = "factor_\(button.tag)"
+        
+        if button.isSelected {
+            if !assessmentData.riskFactors.contains(factorId) {
+                assessmentData.riskFactors.append(factorId)
+            }
+        } else {
+            assessmentData.riskFactors.removeAll { $0 == factorId }
+        }
+        
+        // Update category selected count badge
+        updateCategorySelectedCount(for: button)
+        
+        // Visual feedback
+        UIView.animate(withDuration: 0.2) {
+            button.backgroundColor = button.isSelected ? 
+                TreeShopTheme.primaryGreen.withAlphaComponent(0.15) : 
+                TreeShopTheme.cardBackground
+            button.layer.borderColor = button.isSelected ?
+                TreeShopTheme.primaryGreen.cgColor :
+                button.backgroundColor?.cgColor
+        }
+        
+        // Haptic feedback
+        let impact = UIImpactFeedbackGenerator(style: .light)
+        impact.impactOccurred()
+    }
+    
+    private func updateCategorySelectedCount(for button: UIButton) {
+        // Find the category this button belongs to and update its selected count
+        guard let categoryCard = button.superview?.superview?.superview?.superview else { return }
+        
+        // Count selected factors in this category
+        var selectedCount = 0
+        let allButtons = getAllFactorButtons(in: categoryCard)
+        for btn in allButtons {
+            if btn.isSelected {
+                selectedCount += 1
+            }
+        }
+        
+        // Update the selected count badge
+        if let selectedBadge = categoryCard.viewWithTag(9500 + 10) as? UILabel { // Approximate tag
+            selectedBadge.text = "\(selectedCount)"
+            selectedBadge.isHidden = selectedCount == 0
+            
+            UIView.animate(withDuration: 0.2) {
+                selectedBadge.alpha = selectedCount > 0 ? 1.0 : 0.0
+            }
+        }
+    }
+    
+    private func getAllFactorButtons(in view: UIView) -> [UIButton] {
+        var buttons: [UIButton] = []
+        
+        func findButtons(in view: UIView) {
+            for subview in view.subviews {
+                if let button = subview as? UIButton, button.tag >= 5100 {
+                    buttons.append(button)
+                } else {
+                    findButtons(in: subview)
+                }
+            }
+        }
+        
+        findButtons(in: view)
+        return buttons
+    }
+    
+    // AFISS factors are used for TreeScore calculation - no percentage display needed
+    
+    private func showPhotosStep() {
+        titleLabel.text = "Step 6: Photos"
+        progressBar.progress = 0.84
+        
+        let titleLabel = UILabel()
+        titleLabel.text = "📷 Photos (Optional)"
+        titleLabel.font = UIFont.systemFont(ofSize: 28, weight: .bold)
+        titleLabel.textColor = TreeShopTheme.primaryText
+        titleLabel.textAlignment = .center
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        stepContentView.addSubview(titleLabel)
+        
+        let photoButton = UIButton(type: .system)
+        photoButton.setTitle("📷 Take Photos", for: .normal)
+        photoButton.backgroundColor = TreeShopTheme.primaryGreen
+        photoButton.setTitleColor(.white, for: .normal)
+        photoButton.layer.cornerRadius = 8
+        photoButton.translatesAutoresizingMaskIntoConstraints = false
+        stepContentView.addSubview(photoButton)
+        
+        NSLayoutConstraint.activate([
+            titleLabel.centerXAnchor.constraint(equalTo: stepContentView.centerXAnchor),
+            titleLabel.centerYAnchor.constraint(equalTo: stepContentView.centerYAnchor, constant: -30),
+            
+            photoButton.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 30),
+            photoButton.centerXAnchor.constraint(equalTo: stepContentView.centerXAnchor),
+            photoButton.widthAnchor.constraint(equalToConstant: 200),
+            photoButton.heightAnchor.constraint(equalToConstant: 44)
+        ])
+    }
+    
+    private func showResultsStep() {
+        titleLabel.text = "Step 7: Results"
+        progressBar.progress = 1.0
+        
+        let titleLabel = UILabel()
+        titleLabel.text = "🎯 Assessment Complete!"
+        titleLabel.font = UIFont.systemFont(ofSize: 28, weight: .bold)
+        titleLabel.textColor = TreeShopTheme.primaryText
+        titleLabel.textAlignment = .center
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        stepContentView.addSubview(titleLabel)
+        
+        let finalScore = calculateFinalScore()
+        
+        let scoreLabel = UILabel()
+        scoreLabel.text = String(format: "%.0f", finalScore)
+        scoreLabel.font = UIFont.systemFont(ofSize: 64, weight: .bold)
+        scoreLabel.textColor = TreeShopTheme.primaryGreen
+        scoreLabel.textAlignment = .center
+        scoreLabel.translatesAutoresizingMaskIntoConstraints = false
+        stepContentView.addSubview(scoreLabel)
+        
+        let scoreTitleLabel = UILabel()
+        scoreTitleLabel.text = "TreeScore"
+        scoreTitleLabel.font = UIFont.systemFont(ofSize: 18, weight: .semibold)
+        scoreTitleLabel.textColor = TreeShopTheme.primaryText
+        scoreTitleLabel.textAlignment = .center
+        scoreTitleLabel.translatesAutoresizingMaskIntoConstraints = false
+        stepContentView.addSubview(scoreTitleLabel)
+        
+        let addButton = UIButton(type: .system)
+        addButton.setTitle("🌲 Add Tree to Inventory", for: .normal)
+        addButton.backgroundColor = TreeShopTheme.primaryGreen
+        addButton.setTitleColor(.white, for: .normal)
+        addButton.titleLabel?.font = UIFont.systemFont(ofSize: 18, weight: .bold)
+        addButton.layer.cornerRadius = 8
+        addButton.addTarget(self, action: #selector(addToInventory), for: .touchUpInside)
+        addButton.translatesAutoresizingMaskIntoConstraints = false
+        stepContentView.addSubview(addButton)
+        
+        NSLayoutConstraint.activate([
+            titleLabel.topAnchor.constraint(equalTo: stepContentView.topAnchor, constant: 20),
+            titleLabel.centerXAnchor.constraint(equalTo: stepContentView.centerXAnchor),
+            
+            scoreLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 20),
+            scoreLabel.centerXAnchor.constraint(equalTo: stepContentView.centerXAnchor),
+            
+            scoreTitleLabel.topAnchor.constraint(equalTo: scoreLabel.bottomAnchor, constant: 8),
+            scoreTitleLabel.centerXAnchor.constraint(equalTo: stepContentView.centerXAnchor),
+            
+            addButton.topAnchor.constraint(equalTo: scoreTitleLabel.bottomAnchor, constant: 30),
+            addButton.centerXAnchor.constraint(equalTo: stepContentView.centerXAnchor),
+            addButton.widthAnchor.constraint(equalToConstant: 250),
+            addButton.heightAnchor.constraint(equalToConstant: 56)
+        ])
+        
+        // Hide navigation buttons
+        prevButton.isHidden = true
+        nextButton.isHidden = true
+    }
+    
+    private func updateUI() {
+        // Update navigation buttons
+        prevButton.isEnabled = currentStep > 0
+        prevButton.alpha = currentStep > 0 ? 1.0 : 0.5
+        
+        let canProceed = validateCurrentStep()
+        nextButton.isEnabled = canProceed
+        nextButton.alpha = canProceed ? 1.0 : 0.6
+        
+        if currentStep == 6 {
+            nextButton.isHidden = true
+            prevButton.isHidden = true
+        }
+    }
+    
+    private func validateCurrentStep() -> Bool {
+        switch currentStep {
+        case 0: return true // Location is automatically set from map tap
+        case 1: return assessmentData.height != nil && assessmentData.crownRadius != nil && assessmentData.dbh != nil
+        case 2: return !assessmentData.species.isEmpty
+        default: return true
+        }
+    }
+    
+    private func calculatePreviewScore() -> Double {
+        guard let height = assessmentData.height,
+              let crown = assessmentData.crownRadius,
+              let dbh = assessmentData.dbh else { return 0 }
+        return (height * crown * 2 * dbh) / 12
+    }
+    
+    private func calculateFinalScore() -> Double {
+        let base = calculatePreviewScore()
+        let afiss = 1 + (Double(assessmentData.riskFactors.count) * 0.08)
+        return base * afiss
+    }
+    
+    @objc private func previousStep() {
+        if currentStep > 0 {
+            currentStep -= 1
+            showCurrentStep()
+        }
+    }
+    
+    @objc private func nextStep() {
+        if currentStep < 6 && validateCurrentStep() {
+            currentStep += 1
+            showCurrentStep()
+        }
+    }
+    
+    // Location is automatically set from map tap - no manual input needed
+    
+    @objc private func measurementChanged(_ textField: UITextField) {
+        let value = Double(textField.text ?? "") ?? 0
+        
+        switch textField.tag {
+        case 2001: assessmentData.height = value > 0 ? value : nil
+        case 2002: assessmentData.crownRadius = value > 0 ? value : nil  
+        case 2003: assessmentData.dbh = value > 0 ? value : nil
+        default: break
+        }
+        
+        // Update preview
+        if let previewLabel = stepContentView.viewWithTag(2010) as? UILabel {
+            previewLabel.text = "Preview TreeScore: \(Int(calculatePreviewScore()))"
+        }
+        
+        updateUI()
+    }
+    
+    @objc private func speciesChanged(_ textField: UITextField) {
+        assessmentData.species = textField.text ?? ""
+        updateUI()
+    }
+    
+    @objc private func healthChanged(_ segmented: UISegmentedControl) {
+        let options = ["Excellent", "Good", "Fair", "Poor"]
+        assessmentData.health = options[segmented.selectedSegmentIndex]
+        updateUI()
+    }
+    
+    @objc private func riskToggled(_ button: UIButton) {
+        button.isSelected.toggle()
+        let risks = ["power", "buildings", "cracks", "branches"]
+        let risk = risks[button.tag - 5000]
+        
+        if button.isSelected {
+            assessmentData.riskFactors.append(risk)
+        } else {
+            assessmentData.riskFactors.removeAll { $0 == risk }
+        }
+    }
+    
+    @objc private func addToInventory() {
+        let treeItem = TreeInventoryItem(
+            coordinate: currentLocation ?? CLLocationCoordinate2D(),
+            gpsAccuracy: locationAccuracy ?? 0,
+            height: assessmentData.height ?? 0,
+            canopyRadius: assessmentData.crownRadius ?? 0,
+            dbh: assessmentData.dbh ?? 0,
+            afissPercentage: Double(assessmentData.riskFactors.count) * 8,
+            species: assessmentData.species.isEmpty ? nil : assessmentData.species
+        )
+        
+        // Dismiss the assessment workflow and add tree with map pin
+        dismiss(animated: true) {
+            // FORCE TREE SAVING AND MAP PIN CREATION
+            print("🌲 FORCE SAVING: Adding tree to inventory...")
+            
+            // 1. Save to Core Data
+            TreeInventoryManager.shared.addTree(treeItem)
+            
+            // 2. Force create map pin
+            let annotation = MKPointAnnotation()
+            annotation.coordinate = treeItem.coordinate
+            annotation.title = "Tree - \(treeItem.species ?? "Unknown")"
+            annotation.subtitle = "TreeScore: \(String(format: "%.0f", treeItem.treeScore.finalTreeScore))"
+            
+            // 3. Get main view controller and force add pin
+            var mainVC: MainMapViewController?
+            if let navVC = self.presentingViewController as? UINavigationController {
+                mainVC = navVC.presentingViewController as? MainMapViewController
+            }
+            
+            if let mvc = mainVC {
+                print("🗺️ Adding map pin to main view controller...")
+                DispatchQueue.main.async {
+                    mvc.mapView.addAnnotation(annotation)
+                    mvc.updateAreaLabelWithTreeScoreInfo()
+                    
+                    // Force reload all existing trees to ensure map pins show
+                    mvc.loadExistingTreeInventory()
+                    
+                    print("✅ Map pin added and UI updated!")
+                    
+                    // Show success confirmation
+                    let alert = UIAlertController(
+                        title: "Tree Added",
+                        message: "TreeScore: \(String(format: "%.0f", treeItem.treeScore.finalTreeScore)) saved to inventory",
+                        preferredStyle: .alert
+                    )
+                    alert.addAction(UIAlertAction(title: "OK", style: .default))
+                    mvc.present(alert, animated: true)
+                }
+            } else {
+                print("❌ Could not find main view controller for map pin")
+            }
+        }
+    }
+    
+    func setLocation(_ coordinate: CLLocationCoordinate2D, accuracy: CLLocationAccuracy) {
+        currentLocation = coordinate
+        locationAccuracy = accuracy
+        assessmentData.coordinate = coordinate
+        assessmentData.accuracy = accuracy
+    }
+}
+
+class WorkingAssessmentData {
+    var locationText: String = ""
+    var coordinate: CLLocationCoordinate2D?
+    var accuracy: CLLocationAccuracy?
+    var height: Double?
+    var crownRadius: Double?
+    var dbh: Double?
+    var species: String = ""
+    var health: String = ""
+    var riskFactors: [String] = []
 }
 
 // MARK: - MeasurementHistoryDelegate

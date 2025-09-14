@@ -127,33 +127,23 @@ extension MainMapViewController: TreeScoreInputDelegate {
     }
     
     // MARK: - Map Touch Handling for TreeScore
-    func handleTreeInventoryMapTap(at coordinate: CLLocationCoordinate2D, accuracy: CLLocationAccuracy) {
-        // Store the pending location
-        // pendingTreeLocation = coordinate
-        
-        // Present TreeScore input controller
-        let treeScoreVC = TreeScoreInputViewController()
-        treeScoreVC.delegate = self
-        treeScoreVC.setLocation(coordinate, accuracy: accuracy)
-        
+    internal func handleTreeInventoryMapTap(at coordinate: CLLocationCoordinate2D, accuracy: CLLocationAccuracy) {
         // Pre-select service package if we have area measurements
+        let suggestedPackage: ServicePackage?
         if let lastMeasurement = getLastAreaMeasurement() {
-            let suggestedPackage = suggestServicePackage(forArea: lastMeasurement.value)
-            treeScoreVC.setPrefilledServicePackage(suggestedPackage)
+            suggestedPackage = suggestServicePackage(forArea: lastMeasurement.value)
+        } else {
+            suggestedPackage = nil
         }
         
-        // Present modally with navigation
-        let navController = UINavigationController(rootViewController: treeScoreVC)
-        navController.modalPresentationStyle = .formSheet
-        
-        if #available(iOS 15.0, *) {
-            if let sheet = navController.sheetPresentationController {
-                sheet.detents = [.large()]
-                sheet.prefersGrabberVisible = true
-            }
-        }
-        
-        present(navController, animated: true)
+        // Present new 3-screen TreeScore workflow
+        TreeScoreWorkflowViewController.presentWorkflow(
+            from: self,
+            location: coordinate,
+            accuracy: accuracy,
+            delegate: self,
+            prefilledPackage: suggestedPackage
+        )
     }
     
     // MARK: - TreeScoreInputDelegate
@@ -348,16 +338,17 @@ extension MainMapViewController {
     }
     
     private func editTreeItem(_ treeItem: TreeInventoryItem) {
-        let treeScoreVC = TreeScoreInputViewController()
-        treeScoreVC.delegate = self
-        treeScoreVC.setLocation(treeItem.coordinate, accuracy: treeItem.gpsAccuracy)
+        // Use the new 3-screen workflow for editing
+        TreeScoreWorkflowViewController.presentWorkflow(
+            from: self,
+            location: treeItem.coordinate,
+            accuracy: treeItem.gpsAccuracy,
+            delegate: self,
+            prefilledPackage: treeItem.servicePackage
+        )
         
-        // Pre-fill with existing values would require additional setup in TreeScoreInputViewController
-        
-        let navController = UINavigationController(rootViewController: treeScoreVC)
-        navController.modalPresentationStyle = .formSheet
-        
-        present(navController, animated: true)
+        // Note: Pre-filling existing values would require extending the workflow
+        // to accept existing tree data for editing mode
     }
     
     private func deleteTreeItem(_ treeItem: TreeInventoryItem) {
