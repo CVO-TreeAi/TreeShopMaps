@@ -876,7 +876,7 @@ class MainMapViewController: UIViewController {
         let span = MKCoordinateSpan(latitudeDelta: 0.1, longitudeDelta: 0.1)
         localSearchCompleter.region = MKCoordinateRegion(center: center, span: span)
         
-        print("🔍 Search completer setup complete - region: \(localSearchCompleter.region)")
+        // Search completer ready
     }
     
     // MARK: - Professional Features Setup
@@ -890,7 +890,7 @@ class MainMapViewController: UIViewController {
     
     private func setupProfessionalUI() {
         // Simplified - no complex UI components for now
-        print("Professional UI setup - simplified version")
+        // Professional UI setup complete
     }
     
     // MARK: - Mode Management
@@ -1452,16 +1452,19 @@ class MainMapViewController: UIViewController {
         let trees = TreeInventoryManager.shared.getTrees()
         
         for tree in trees {
-            let annotation = tree.createMapAnnotation()
+            // Use simple annotation to ensure pins show up
+            let annotation = MKPointAnnotation()
+            annotation.coordinate = tree.coordinate
+            annotation.title = "Tree - \(tree.species ?? "Unknown")"
+            annotation.subtitle = "TreeScore: \(String(format: "%.0f", tree.treeScore.finalTreeScore))"
             mapView.addAnnotation(annotation)
-            treeScoreAnnotations.append(annotation)
+            
+            print("📍 Added tree pin at \(tree.coordinate)")
         }
         
         updateAreaLabelWithTreeScoreInfo()
         
-        if !trees.isEmpty {
-            print("🌲 Loaded \(trees.count) trees from inventory")
-        }
+        // Trees loaded silently
     }
     
     @objc private func focusOnSearchBar() {
@@ -2834,26 +2837,10 @@ class MainMapViewController: UIViewController {
         // Clear existing property lines first
         clearPropertyLines()
         
-        let center = mapView.region.center
+        _ = mapView.region.center
         _ = mapView.region.span
         
-        // Call TreeShop backend to get real Regrid parcel data  
-        let urlString = "http://localhost:3003/v1/parcels/search?app_token=treeshop_app_\(UIDevice.current.identifierForVendor?.uuidString ?? "unknown")&lat=\(center.latitude)&lon=\(center.longitude)&radius=500&limit=20"
-        
-        guard let url = URL(string: urlString) else { return }
-        
-        URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
-            guard let self = self,
-                  let data = data,
-                  error == nil else {
-                print("Property line load error: \(error?.localizedDescription ?? "Unknown")")
-                return
-            }
-            
-            DispatchQueue.main.async {
-                self.parseAndDisplayRegridGeoJSON(data)
-            }
-        }.resume()
+        // DISABLED - Backend not running in production
     }
     
     private func parseAndDisplayRegridGeoJSON(_ data: Data) {
