@@ -5,25 +5,54 @@ import MapKit
 extension MainMapViewController {
     
     @objc func toggleDrawingMode() {
-        switch currentMode {
-        case .normal:
-            currentMode = .drawing
-            currentModeLabel.text = "Drawing Mode - Tap to add points"
-            currentModeLabel.backgroundColor = TreeShopTheme.primaryGreen
-            
-        case .drawing:
+        if currentMode == .drawing {
+            // Already drawing - turn off
             currentMode = .normal
-            currentModeLabel.text = "Ready"
-            currentModeLabel.backgroundColor = UIColor.red
-            
-        default:
-            currentMode = .drawing
-            currentModeLabel.text = "Drawing Mode - Tap to add points"
-            currentModeLabel.backgroundColor = TreeShopTheme.primaryGreen
+            currentModeLabel?.text = "Ready"
+            updateModeDisplay()
+        } else {
+            // Start drawing - ask for package first
+            showPackageSelectionForDrawing()
+        }
+    }
+    
+    private func showPackageSelectionForDrawing() {
+        let alert = UIAlertController(title: "📦 Select Package", message: "Choose debris density for area drawing:", preferredStyle: .actionSheet)
+        
+        let packages = [
+            (ServicePackage.small, "Small - Light debris", "Light green area"),
+            (ServicePackage.medium, "Medium - Moderate debris", "Green standard area"),
+            (ServicePackage.large, "Large - Heavy debris", "Orange heavy area"),
+            (ServicePackage.xLarge, "XL - Very heavy debris", "Red intensive area"),
+            (ServicePackage.max, "MAX - Maximum debris", "Purple maximum area")
+        ]
+        
+        for (package, title, description) in packages {
+            alert.addAction(UIAlertAction(title: "\(title)\n\(description)", style: .default) { [weak self] _ in
+                self?.startDrawingWithPackage(package)
+            })
         }
         
-        // Update UI based on mode
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        
+        // Configure for iPad
+        if let popover = alert.popoverPresentationController {
+            popover.sourceView = view
+            popover.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.maxY - 100, width: 0, height: 0)
+        }
+        
+        present(alert, animated: true)
+    }
+    
+    private func startDrawingWithPackage(_ package: ServicePackage) {
+        currentSelectedPackage = package
+        currentMode = .drawing
+        currentModeLabel?.text = "Drawing \(package.rawValue) - Tap to add points"
+        
+        // Update mode display with package color indication
         updateModeDisplay()
+        
+        print("🎨 Started drawing with \(package.rawValue) package - will draw in \(package.color)")
     }
     
     @objc func clearDrawing() {

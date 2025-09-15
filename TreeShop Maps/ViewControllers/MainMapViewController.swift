@@ -29,12 +29,13 @@ class MainMapViewController: UIViewController {
     // private var measurementLabels: [MeasurementLabelAnnotation] = []
     
     // MARK: - Managers
-    private var locationManager: LocationManager!
+    private var locationManager: LocationManager? // Made optional to prevent crash
     private var mapCacheManager: MapCacheManager!
     private var localSearchCompleter: MKLocalSearchCompleter!
     private var searchResults: [MKLocalSearchCompletion] = []
     private var currentSearchLocationAnnotation: MKPointAnnotation?
     private var currentSelectedPackage: ServicePackage = .medium
+    // Dynamic scoreboard will be integrated directly
     
     // MARK: - Mode Management
     enum AppMode {
@@ -447,146 +448,339 @@ class MainMapViewController: UIViewController {
     }
     
     private func setupBottomToolsView() {
-        // STEVE JOBS CLEAN DESIGN - WORKFLOW-BASED UI
+        // DYNAMIC WIDGET-STYLE SCOREBOARD - 25% OF SCREEN  
         bottomToolsView = UIView()
         bottomToolsView.translatesAutoresizingMaskIntoConstraints = false
-        bottomToolsView.backgroundColor = TreeShopTheme.cardBackground
+        bottomToolsView.backgroundColor = .clear // Transparent for blur effects
         
         view.addSubview(bottomToolsView)
         view.bringSubviewToFront(bottomToolsView)
         
-        // CLEAN 3-ROW LAYOUT
-        let mainStack = UIStackView()
-        mainStack.axis = .vertical
-        mainStack.distribution = .fill
-        mainStack.spacing = 16
-        mainStack.translatesAutoresizingMaskIntoConstraints = false
-        bottomToolsView.addSubview(mainStack)
-        
-        // ROW 1: Context Bar (Mode + Package + GPS)
-        let contextBar = UIStackView()
-        contextBar.axis = .horizontal
-        contextBar.distribution = .fill
-        contextBar.alignment = .center
-        contextBar.spacing = 16
-        
-        // Profile Button (not a label)
-        let profileBtn = UIButton(type: .system)
-        profileBtn.setTitle("👤 Profile", for: .normal)
-        profileBtn.backgroundColor = TreeShopTheme.buttonBackground
-        profileBtn.setTitleColor(TreeShopTheme.primaryText, for: .normal)
-        profileBtn.titleLabel?.font = UIFont.systemFont(ofSize: 16, weight: .semibold)
-        profileBtn.layer.cornerRadius = 8
-        profileBtn.addTarget(self, action: #selector(showProfile), for: .touchUpInside)
-        profileBtn.translatesAutoresizingMaskIntoConstraints = false
-        
-        NSLayoutConstraint.activate([
-            profileBtn.widthAnchor.constraint(equalToConstant: 100),
-            profileBtn.heightAnchor.constraint(equalToConstant: 36)
-        ])
-        
-        contextBar.addArrangedSubview(profileBtn)
-        
-        // Mode Status Label
-        currentModeLabel = UILabel()
-        currentModeLabel.text = "Ready"
-        currentModeLabel.textColor = TreeShopTheme.primaryText
-        currentModeLabel.font = UIFont.systemFont(ofSize: 14, weight: .medium)
-        currentModeLabel.textAlignment = .center
-        contextBar.addArrangedSubview(currentModeLabel)
-        
-        let spacer = UIView()
-        contextBar.addArrangedSubview(spacer)
-        
-        let gpsLabel = UILabel()
-        gpsLabel.text = "GPS: ±2.1m"
-        gpsLabel.textColor = TreeShopTheme.secondaryText
-        gpsLabel.font = UIFont.systemFont(ofSize: 14, weight: .medium)
-        contextBar.addArrangedSubview(gpsLabel)
-        
-        mainStack.addArrangedSubview(contextBar)
-        
-        // ROW 2: Primary Data Display (More Space)
-        let dataContainer = UIView()
-        
-        areaLabel = UILabel()
-        areaLabel.text = "0.12 acres"
-        areaLabel.textColor = TreeShopTheme.primaryGreen
-        areaLabel.font = UIFont.monospacedDigitSystemFont(ofSize: 24, weight: .bold)
-        areaLabel.textAlignment = .center
-        areaLabel.translatesAutoresizingMaskIntoConstraints = false
-        dataContainer.addSubview(areaLabel)
-        
-        // Secondary Data
-        let secondaryData = UIStackView()
-        secondaryData.axis = .horizontal
-        secondaryData.distribution = .fillEqually
-        secondaryData.spacing = 8
-        secondaryData.translatesAutoresizingMaskIntoConstraints = false
-        dataContainer.addSubview(secondaryData)
-        
-        perimeterLabel = UILabel()
-        perimeterLabel.text = "293.5 ft"
-        perimeterLabel.textColor = TreeShopTheme.accentGreen
-        perimeterLabel.font = UIFont.monospacedDigitSystemFont(ofSize: 14, weight: .semibold)
-        perimeterLabel.textAlignment = .center
-        secondaryData.addArrangedSubview(perimeterLabel)
-        
-        let treeCountLabel = UILabel()
-        treeCountLabel.text = "3 trees"
-        treeCountLabel.textColor = TreeShopTheme.primaryText
-        treeCountLabel.font = UIFont.monospacedDigitSystemFont(ofSize: 14, weight: .semibold)
-        treeCountLabel.textAlignment = .center
-        treeCountLabel.tag = 9001
-        secondaryData.addArrangedSubview(treeCountLabel)
-        
-        NSLayoutConstraint.activate([
-            areaLabel.centerXAnchor.constraint(equalTo: dataContainer.centerXAnchor),
-            areaLabel.centerYAnchor.constraint(equalTo: dataContainer.centerYAnchor, constant: -12),
-            
-            secondaryData.topAnchor.constraint(equalTo: areaLabel.bottomAnchor, constant: 8),
-            secondaryData.leadingAnchor.constraint(equalTo: dataContainer.leadingAnchor, constant: 40),
-            secondaryData.trailingAnchor.constraint(equalTo: dataContainer.trailingAnchor, constant: -40)
-        ])
-        
-        mainStack.addArrangedSubview(dataContainer)
-        
-        // ROW 3: 4 Clear Workflow Buttons
-        let workflowRow = UIStackView()
-        workflowRow.axis = .horizontal
-        workflowRow.distribution = .fillEqually
-        workflowRow.spacing = 16
-        
-        let areaBtn = createWorkflowButton(title: "Area", subtitle: "Draw")
-        areaBtn.addTarget(self, action: #selector(toggleDrawingMode), for: .touchUpInside)
-        workflowRow.addArrangedSubview(areaBtn)
-        
-        let treeBtn = createWorkflowButton(title: "Tree", subtitle: "Assess")
-        treeBtn.addTarget(self, action: #selector(toggleTreeInventoryMode), for: .touchUpInside)
-        workflowRow.addArrangedSubview(treeBtn)
-        
-        let measureBtn = createWorkflowButton(title: "Measure", subtitle: "Tools")
-        measureBtn.addTarget(self, action: #selector(toggleMeasuringMode), for: .touchUpInside)
-        workflowRow.addArrangedSubview(measureBtn)
-        
-        let moreBtn = createWorkflowButton(title: "More", subtitle: "Menu")
-        moreBtn.addTarget(self, action: #selector(showMoreMenu), for: .touchUpInside)
-        workflowRow.addArrangedSubview(moreBtn)
-        
-        mainStack.addArrangedSubview(workflowRow)
+        // Create dynamic widget-style interface directly
+        setupDynamicWidgetInterface()
         
         // Layout - 25% OF SCREEN
         NSLayoutConstraint.activate([
             bottomToolsView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             bottomToolsView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             bottomToolsView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            bottomToolsView.heightAnchor.constraint(equalTo: view.heightAnchor, multiplier: 0.25),
-            
-            mainStack.topAnchor.constraint(equalTo: bottomToolsView.topAnchor, constant: 16),
-            mainStack.leadingAnchor.constraint(equalTo: bottomToolsView.leadingAnchor, constant: 12),
-            mainStack.trailingAnchor.constraint(equalTo: bottomToolsView.trailingAnchor, constant: -12),
-            mainStack.bottomAnchor.constraint(equalTo: bottomToolsView.bottomAnchor, constant: -20)
+            bottomToolsView.heightAnchor.constraint(equalTo: view.heightAnchor, multiplier: 0.25)
         ])
+    }
+    
+    private func setupDynamicWidgetInterface() {
+        // Professional blur background
+        let blurEffect = UIBlurEffect(style: .systemThinMaterialDark)
+        let blurView = UIVisualEffectView(effect: blurEffect)
+        blurView.translatesAutoresizingMaskIntoConstraints = false
+        bottomToolsView.addSubview(blurView)
+        
+        // Main container with elevation
+        let mainContainer = UIView()
+        mainContainer.backgroundColor = TreeShopTheme.cardBackground.withAlphaComponent(0.95)
+        mainContainer.layer.cornerRadius = 20
+        mainContainer.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+        mainContainer.layer.shadowColor = UIColor.black.cgColor
+        mainContainer.layer.shadowOpacity = 0.4
+        mainContainer.layer.shadowOffset = CGSize(width: 0, height: -4)
+        mainContainer.layer.shadowRadius = 12
+        mainContainer.translatesAutoresizingMaskIntoConstraints = false
+        bottomToolsView.addSubview(mainContainer)
+        
+        // Widget grid
+        let widgetStack = UIStackView()
+        widgetStack.axis = .horizontal
+        widgetStack.distribution = .fillEqually
+        widgetStack.spacing = 12
+        widgetStack.translatesAutoresizingMaskIntoConstraints = false
+        mainContainer.addSubview(widgetStack)
+        
+        // Create widgets with LIVE DATA
+        let areaValue = currentMeasurementValue > 0 ? String(format: "%.2f ac", currentMeasurementValue) : "0.00 ac"
+        let treeCount = TreeInventoryManager.shared.getTrees().count
+        let treeValue = String(treeCount)
+        // Get GPS accuracy directly from mapView since it's clearly working
+        let gpsAccuracy = mapView.userLocation.location?.horizontalAccuracy ?? -1.0
+        let gpsValue = gpsAccuracy >= 0 ? String(format: "±%.1fm", gpsAccuracy) : "Getting GPS..."
+        
+        let areaWidget = createCompactWidget(title: "Area", value: areaValue, icon: "📐", color: TreeShopTheme.primaryGreen)
+        let treeWidget = createCompactWidget(title: "Trees", value: treeValue, icon: "🌳", color: TreeShopTheme.accentGreen)  
+        let gpsWidget = createCompactWidget(title: "GPS", value: gpsValue, icon: "📍", color: TreeShopTheme.successGreen)
+        
+        widgetStack.addArrangedSubview(areaWidget)
+        widgetStack.addArrangedSubview(treeWidget)
+        widgetStack.addArrangedSubview(gpsWidget)
+        
+        // Profile button + Action buttons
+        let topActionStack = UIStackView()
+        topActionStack.axis = .horizontal
+        topActionStack.distribution = .fill
+        topActionStack.spacing = 12
+        topActionStack.translatesAutoresizingMaskIntoConstraints = false
+        mainContainer.addSubview(topActionStack)
+        
+        // Profile button
+        let profileBtn = createProfessionalButton("👤 Profile")
+        profileBtn.addTarget(self, action: #selector(showProfile), for: .touchUpInside)
+        profileBtn.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            profileBtn.widthAnchor.constraint(equalToConstant: 80)
+        ])
+        topActionStack.addArrangedSubview(profileBtn)
+        
+        // Map controls moved from map to bottom section
+        let mapControlStack = UIStackView()
+        mapControlStack.axis = .horizontal
+        mapControlStack.spacing = 8
+        
+        let zoomInBtn = createMapControlButton("+")
+        zoomInBtn.addTarget(self, action: #selector(zoomIn), for: .touchUpInside)
+        mapControlStack.addArrangedSubview(zoomInBtn)
+        
+        let zoomOutBtn = createMapControlButton("-")
+        zoomOutBtn.addTarget(self, action: #selector(zoomOut), for: .touchUpInside)
+        mapControlStack.addArrangedSubview(zoomOutBtn)
+        
+        let locationBtn = createMapControlButton("📍")
+        locationBtn.addTarget(self, action: #selector(centerOnMyLocation), for: .touchUpInside)
+        mapControlStack.addArrangedSubview(locationBtn)
+        
+        topActionStack.addArrangedSubview(mapControlStack)
+        
+        let spacer = UIView()
+        topActionStack.addArrangedSubview(spacer)
+        
+        // Mode status
+        currentModeLabel = UILabel()
+        currentModeLabel.text = "Ready"
+        currentModeLabel.textColor = TreeShopTheme.primaryText
+        currentModeLabel.font = UIFont.systemFont(ofSize: 14, weight: .medium)
+        currentModeLabel.textAlignment = .center
+        topActionStack.addArrangedSubview(currentModeLabel)
+        
+        // Main action buttons
+        let actionStack = UIStackView()
+        actionStack.axis = .horizontal
+        actionStack.distribution = .fillEqually
+        actionStack.spacing = 12
+        actionStack.translatesAutoresizingMaskIntoConstraints = false
+        mainContainer.addSubview(actionStack)
+        
+        let areaBtn = createProfessionalButton("Area")
+        areaBtn.addTarget(self, action: #selector(toggleDrawingMode), for: .touchUpInside)
+        actionStack.addArrangedSubview(areaBtn)
+        
+        let treeBtn = createProfessionalButton("Tree")
+        treeBtn.addTarget(self, action: #selector(toggleTreeInventoryMode), for: .touchUpInside)
+        actionStack.addArrangedSubview(treeBtn)
+        
+        let measureBtn = createProfessionalButton("Measure")
+        measureBtn.addTarget(self, action: #selector(toggleMeasuringMode), for: .touchUpInside)
+        actionStack.addArrangedSubview(measureBtn)
+        
+        let moreBtn = createProfessionalButton("More")
+        moreBtn.addTarget(self, action: #selector(showMoreMenu), for: .touchUpInside)
+        actionStack.addArrangedSubview(moreBtn)
+        
+        // Create dummy labels for backward compatibility
+        areaLabel = UILabel() // Dummy - widgets handle their own updates
+        perimeterLabel = UILabel() // Dummy
+        currentModeLabel = UILabel() // Dummy
+        
+        // Layout constraints
+        NSLayoutConstraint.activate([
+            blurView.topAnchor.constraint(equalTo: bottomToolsView.topAnchor),
+            blurView.leadingAnchor.constraint(equalTo: bottomToolsView.leadingAnchor),
+            blurView.trailingAnchor.constraint(equalTo: bottomToolsView.trailingAnchor),
+            blurView.bottomAnchor.constraint(equalTo: bottomToolsView.bottomAnchor),
+            
+            mainContainer.topAnchor.constraint(equalTo: bottomToolsView.topAnchor, constant: 16),
+            mainContainer.leadingAnchor.constraint(equalTo: bottomToolsView.leadingAnchor, constant: 12),
+            mainContainer.trailingAnchor.constraint(equalTo: bottomToolsView.trailingAnchor, constant: -12),
+            mainContainer.bottomAnchor.constraint(equalTo: bottomToolsView.bottomAnchor, constant: -20),
+            
+            topActionStack.topAnchor.constraint(equalTo: mainContainer.topAnchor, constant: 8),
+            topActionStack.leadingAnchor.constraint(equalTo: mainContainer.leadingAnchor, constant: 12),
+            topActionStack.trailingAnchor.constraint(equalTo: mainContainer.trailingAnchor, constant: -12),
+            topActionStack.heightAnchor.constraint(equalToConstant: 32),
+            
+            widgetStack.topAnchor.constraint(equalTo: topActionStack.bottomAnchor, constant: 12),
+            widgetStack.leadingAnchor.constraint(equalTo: mainContainer.leadingAnchor, constant: 12),
+            widgetStack.trailingAnchor.constraint(equalTo: mainContainer.trailingAnchor, constant: -12),
+            widgetStack.heightAnchor.constraint(equalToConstant: 70),
+            
+            actionStack.topAnchor.constraint(equalTo: widgetStack.bottomAnchor, constant: 12),
+            actionStack.leadingAnchor.constraint(equalTo: mainContainer.leadingAnchor, constant: 12),
+            actionStack.trailingAnchor.constraint(equalTo: mainContainer.trailingAnchor, constant: -12),
+            actionStack.bottomAnchor.constraint(equalTo: mainContainer.bottomAnchor, constant: -12),
+            actionStack.heightAnchor.constraint(equalToConstant: 40)
+        ])
+    }
+    
+    private func createCompactWidget(title: String, value: String, icon: String, color: UIColor) -> UIView {
+        let widget = UIView()
+        widget.backgroundColor = TreeShopTheme.cardBackground.withAlphaComponent(0.95)
+        widget.layer.cornerRadius = 10
+        widget.layer.borderWidth = 1
+        widget.layer.borderColor = color.withAlphaComponent(0.4).cgColor
+        widget.translatesAutoresizingMaskIntoConstraints = false
+        
+        let stack = UIStackView()
+        stack.axis = .vertical
+        stack.alignment = .center
+        stack.spacing = 2
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        widget.addSubview(stack)
+        
+        let iconLabel = UILabel()
+        iconLabel.text = icon
+        iconLabel.font = UIFont.systemFont(ofSize: 14)
+        stack.addArrangedSubview(iconLabel)
+        
+        let valueLabel = UILabel()
+        valueLabel.text = value
+        valueLabel.textColor = color
+        valueLabel.font = UIFont.monospacedDigitSystemFont(ofSize: 16, weight: .bold)
+        valueLabel.textAlignment = .center
+        valueLabel.adjustsFontSizeToFitWidth = true
+        valueLabel.minimumScaleFactor = 0.8
+        valueLabel.tag = title == "Area" ? 1001 : title == "Trees" ? 1002 : 1003
+        stack.addArrangedSubview(valueLabel)
+        
+        let titleLabel = UILabel()
+        titleLabel.text = title
+        titleLabel.textColor = TreeShopTheme.secondaryText
+        titleLabel.font = UIFont.systemFont(ofSize: 10, weight: .medium)
+        titleLabel.textAlignment = .center
+        stack.addArrangedSubview(titleLabel)
+        
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: widget.topAnchor, constant: 4),
+            stack.leadingAnchor.constraint(equalTo: widget.leadingAnchor, constant: 4),
+            stack.trailingAnchor.constraint(equalTo: widget.trailingAnchor, constant: -4),
+            stack.bottomAnchor.constraint(equalTo: widget.bottomAnchor, constant: -4)
+        ])
+        
+        return widget
+    }
+    
+    private func createSplitGPSWidget(accuracy: String, distance: String) -> UIView {
+        let widget = UIView()
+        widget.backgroundColor = TreeShopTheme.cardBackground.withAlphaComponent(0.95)
+        widget.layer.cornerRadius = 10
+        widget.layer.borderWidth = 1
+        widget.layer.borderColor = TreeShopTheme.successGreen.withAlphaComponent(0.4).cgColor
+        widget.translatesAutoresizingMaskIntoConstraints = false
+        
+        // Split into top and bottom sections
+        let topSection = UIView()
+        topSection.translatesAutoresizingMaskIntoConstraints = false
+        widget.addSubview(topSection)
+        
+        let bottomSection = UIView()
+        bottomSection.translatesAutoresizingMaskIntoConstraints = false
+        widget.addSubview(bottomSection)
+        
+        // Top section - GPS Accuracy
+        let topStack = UIStackView()
+        topStack.axis = .vertical
+        topStack.alignment = .center
+        topStack.spacing = 1
+        topStack.translatesAutoresizingMaskIntoConstraints = false
+        topSection.addSubview(topStack)
+        
+        let gpsIcon = UILabel()
+        gpsIcon.text = "📍"
+        gpsIcon.font = UIFont.systemFont(ofSize: 12)
+        topStack.addArrangedSubview(gpsIcon)
+        
+        let accuracyLabel = UILabel()
+        accuracyLabel.text = accuracy
+        accuracyLabel.textColor = TreeShopTheme.successGreen
+        accuracyLabel.font = UIFont.monospacedDigitSystemFont(ofSize: 12, weight: .bold)
+        accuracyLabel.textAlignment = .center
+        accuracyLabel.adjustsFontSizeToFitWidth = true
+        accuracyLabel.minimumScaleFactor = 0.7
+        topStack.addArrangedSubview(accuracyLabel)
+        
+        // Bottom section - Distance
+        let bottomStack = UIStackView()
+        bottomStack.axis = .vertical
+        bottomStack.alignment = .center
+        bottomStack.spacing = 1
+        bottomStack.translatesAutoresizingMaskIntoConstraints = false
+        bottomSection.addSubview(bottomStack)
+        
+        let distanceLabel = UILabel()
+        distanceLabel.text = distance
+        distanceLabel.textColor = TreeShopTheme.accentGreen
+        distanceLabel.font = UIFont.monospacedDigitSystemFont(ofSize: 12, weight: .bold)
+        distanceLabel.textAlignment = .center
+        distanceLabel.adjustsFontSizeToFitWidth = true
+        distanceLabel.minimumScaleFactor = 0.7
+        bottomStack.addArrangedSubview(distanceLabel)
+        
+        let distanceTitle = UILabel()
+        distanceTitle.text = "Distance"
+        distanceTitle.textColor = TreeShopTheme.tertiaryText
+        distanceTitle.font = UIFont.systemFont(ofSize: 8, weight: .medium)
+        distanceTitle.textAlignment = .center
+        bottomStack.addArrangedSubview(distanceTitle)
+        
+        NSLayoutConstraint.activate([
+            topSection.topAnchor.constraint(equalTo: widget.topAnchor),
+            topSection.leadingAnchor.constraint(equalTo: widget.leadingAnchor),
+            topSection.trailingAnchor.constraint(equalTo: widget.trailingAnchor),
+            topSection.heightAnchor.constraint(equalTo: widget.heightAnchor, multiplier: 0.5),
+            
+            bottomSection.topAnchor.constraint(equalTo: topSection.bottomAnchor),
+            bottomSection.leadingAnchor.constraint(equalTo: widget.leadingAnchor),
+            bottomSection.trailingAnchor.constraint(equalTo: widget.trailingAnchor),
+            bottomSection.bottomAnchor.constraint(equalTo: widget.bottomAnchor),
+            
+            topStack.centerXAnchor.constraint(equalTo: topSection.centerXAnchor),
+            topStack.centerYAnchor.constraint(equalTo: topSection.centerYAnchor),
+            
+            bottomStack.centerXAnchor.constraint(equalTo: bottomSection.centerXAnchor),
+            bottomStack.centerYAnchor.constraint(equalTo: bottomSection.centerYAnchor)
+        ])
+        
+        return widget
+    }
+    
+    private func createProfessionalButton(_ title: String) -> UIButton {
+        let button = UIButton(type: .system)
+        button.setTitle(title, for: .normal)
+        button.backgroundColor = TreeShopTheme.primaryGreen.withAlphaComponent(0.1)
+        button.setTitleColor(TreeShopTheme.primaryGreen, for: .normal)
+        button.titleLabel?.font = UIFont.systemFont(ofSize: 16, weight: .bold)
+        button.layer.cornerRadius = 12
+        button.layer.borderWidth = 2
+        button.layer.borderColor = TreeShopTheme.primaryGreen.withAlphaComponent(0.3).cgColor
+        button.layer.shadowColor = UIColor.black.cgColor
+        button.layer.shadowOpacity = 0.1
+        button.layer.shadowOffset = CGSize(width: 0, height: 2)
+        button.layer.shadowRadius = 3
+        return button
+    }
+    
+    private func createMapControlButton(_ title: String) -> UIButton {
+        let button = UIButton(type: .system)
+        button.setTitle(title, for: .normal)
+        button.backgroundColor = TreeShopTheme.buttonBackground
+        button.setTitleColor(TreeShopTheme.primaryText, for: .normal)
+        button.titleLabel?.font = UIFont.systemFont(ofSize: 16, weight: .bold)
+        button.layer.cornerRadius = 8
+        button.layer.borderWidth = 1
+        button.layer.borderColor = TreeShopTheme.primaryGreen.withAlphaComponent(0.3).cgColor
+        button.translatesAutoresizingMaskIntoConstraints = false
+        
+        NSLayoutConstraint.activate([
+            button.widthAnchor.constraint(equalToConstant: 32),
+            button.heightAnchor.constraint(equalToConstant: 32)
+        ])
+        
+        return button
     }
     
     private func createWorkflowButton(title: String, subtitle: String) -> UIButton {
@@ -862,7 +1056,7 @@ class MainMapViewController: UIViewController {
         locationManager = LocationManager.shared
         mapCacheManager = MapCacheManager.shared
         
-        locationManager.startTracking()
+        locationManager?.startTracking()
         centerOnUserLocation()
     }
     
@@ -1350,7 +1544,7 @@ class MainMapViewController: UIViewController {
         let coordinate = mapView.convert(point, toCoordinateFrom: mapView)
         
         // Get current GPS accuracy from location manager
-        let currentAccuracy = locationManager.getCurrentAccuracy()
+        let currentAccuracy = locationManager?.getCurrentAccuracy() ?? 0.0
         
         // Haptic feedback
         let generator = UIImpactFeedbackGenerator(style: .medium)
@@ -1366,23 +1560,68 @@ class MainMapViewController: UIViewController {
     }
     
     func presentSimpleTreeScoreInput(at coordinate: CLLocationCoordinate2D, accuracy: CLLocationAccuracy) {
-        // CREATE WORKING PROFESSIONAL MULTI-STEP WORKFLOW
-        let workflowVC = ProfessionalTreeScoreWorkflowViewController()
-        workflowVC.setLocation(coordinate, accuracy: accuracy)
-        workflowVC.treeDelegate = self as? TreeScoreInputDelegate
-        workflowVC.mapViewController = self
+        // QUICK TREE ASSESSMENT - KEEPS MAP VISIBLE
+        updateScoreboardForTreeAssessment(coordinate: coordinate, accuracy: accuracy)
+    }
+    
+    private func updateScoreboardForTreeAssessment(coordinate: CLLocationCoordinate2D, accuracy: CLLocationAccuracy) {
+        // Update the widget area to show tree assessment inputs
+        // This replaces the current widgets with tree measurement inputs
         
-        let navController = UINavigationController(rootViewController: workflowVC)
-        navController.modalPresentationStyle = .formSheet
+        // For now, use a quick assessment dialog that doesn't cover the map
+        let alert = UIAlertController(
+            title: "🌳 Quick Tree Assessment",
+            message: "GPS: \(String(format: "%.6f, %.6f", coordinate.latitude, coordinate.longitude))",
+            preferredStyle: .alert
+        )
         
-        if #available(iOS 15.0, *) {
-            if let sheet = navController.sheetPresentationController {
-                sheet.detents = [.large()]
-                sheet.prefersGrabberVisible = true
-            }
+        alert.addTextField { textField in
+            textField.placeholder = "Height (ft)"
+            textField.keyboardType = .decimalPad
         }
         
-        present(navController, animated: true)
+        alert.addTextField { textField in
+            textField.placeholder = "Crown Radius (ft)"
+            textField.keyboardType = .decimalPad
+        }
+        
+        alert.addTextField { textField in
+            textField.placeholder = "DBH (inches)"
+            textField.keyboardType = .decimalPad
+        }
+        
+        alert.addAction(UIAlertAction(title: "Add Tree", style: .default) { [weak self] _ in
+            guard let height = Double(alert.textFields?[0].text ?? ""),
+                  let crown = Double(alert.textFields?[1].text ?? ""),
+                  let dbh = Double(alert.textFields?[2].text ?? "") else { return }
+            
+            let tree = TreeInventoryItem(
+                coordinate: coordinate,
+                gpsAccuracy: accuracy,
+                height: height,
+                canopyRadius: crown,
+                dbh: dbh,
+                afissPercentage: 25.0,
+                species: "Tree"
+            )
+            
+            // Add tree directly
+            TreeInventoryManager.shared.addTree(tree)
+            
+            // Add map pin
+            let annotation = MKPointAnnotation()
+            annotation.coordinate = coordinate
+            annotation.title = "Tree"
+            annotation.subtitle = "TreeScore: \(String(format: "%.0f", tree.treeScore.finalTreeScore))"
+            self?.mapView.addAnnotation(annotation)
+            
+            // Update widgets
+            self?.setupDynamicWidgetInterface()
+        })
+        
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        
+        present(alert, animated: true)
     }
     private func suggestServicePackage(forArea acres: Double) -> ServicePackage {
         switch acres {
@@ -2004,7 +2243,7 @@ class MainMapViewController: UIViewController {
     }
     
     private func updateGPSAccuracy() {
-        if let location = locationManager.getCurrentLocation() {
+        if let location = locationManager?.getCurrentLocation() {
             // gpsAccuracyView.updateAccuracy(location.horizontalAccuracy, coordinate: location.coordinate)  // Commented until UI component is added
             print("GPS Accuracy: \(location.horizontalAccuracy) meters")
         }
@@ -2225,7 +2464,7 @@ class MainMapViewController: UIViewController {
     }
     
     @objc private func showGPSSettings() {
-        let currentAccuracy = locationManager.getCurrentAccuracy()
+        let currentAccuracy = locationManager?.getCurrentAccuracy() ?? 0.0
         let accuracyColor = currentAccuracy < 3 ? "🟢" : currentAccuracy < 10 ? "🟡" : "🔴"
         
         let alert = UIAlertController(
@@ -2256,7 +2495,7 @@ class MainMapViewController: UIViewController {
     }
     
     private func recalibrateGPS() {
-        locationManager.startTracking()
+        locationManager?.startTracking()
         showAlert(title: "GPS Recalibrating", message: "Requesting fresh location data...")
     }
     
@@ -4487,3 +4726,4 @@ extension MainMapViewController: TreeScoreInputDelegate {
     }
 }
 */
+

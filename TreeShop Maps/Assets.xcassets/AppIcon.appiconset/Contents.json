@@ -1,109 +1,101 @@
 {
   "images" : [
     {
-      "filename" : "app-icon-20.png",
+      "filename" : "Untitled (80 x 80 px) (40 x 40 px) 2.jpg",
       "idiom" : "iphone",
       "scale" : "2x",
       "size" : "20x20"
     },
     {
-      "filename" : "app-icon-20@3x.png",
+      "filename" : "Untitled (80 x 80 px) (60 x 60 px).jpg",
       "idiom" : "iphone",
       "scale" : "3x",
       "size" : "20x20"
     },
     {
-      "filename" : "app-icon-29.png",
+      "filename" : "Untitled (80 x 80 px) (60 x 60 px) (58 x 58 px).jpg",
       "idiom" : "iphone",
       "scale" : "2x",
       "size" : "29x29"
     },
     {
-      "filename" : "app-icon-29@3x.png",
+      "filename" : "Untitled (180 x 180 px) (120 x 120 px) (1024 x 1024 px) (167 x 167 px) (87 x 87 px).jpg",
       "idiom" : "iphone",
       "scale" : "3x",
       "size" : "29x29"
     },
     {
-      "filename" : "app-icon-40.png",
+      "filename" : "Untitled (80 x 80 px).jpg",
       "idiom" : "iphone",
       "scale" : "2x",
       "size" : "40x40"
     },
     {
-      "filename" : "app-icon-40@3x.png",
+      "filename" : "Untitled (180 x 180 px) (120 x 120 px) 1.jpg",
       "idiom" : "iphone",
       "scale" : "3x",
       "size" : "40x40"
     },
     {
-      "filename" : "app-icon-60@2x.png",
+      "filename" : "Untitled (180 x 180 px) (120 x 120 px).jpg",
       "idiom" : "iphone",
       "scale" : "2x",
       "size" : "60x60"
     },
     {
-      "filename" : "app-icon-60@3x.png",
+      "filename" : "Untitled (180 x 180 px) (1).jpg",
       "idiom" : "iphone",
       "scale" : "3x",
       "size" : "60x60"
     },
     {
-      "filename" : "app-icon-20-ipad.png",
       "idiom" : "ipad",
       "scale" : "1x",
       "size" : "20x20"
     },
     {
-      "filename" : "app-icon-20-ipad@2x.png",
+      "filename" : "Untitled (80 x 80 px) (40 x 40 px) 1.jpg",
       "idiom" : "ipad",
       "scale" : "2x",
       "size" : "20x20"
     },
     {
-      "filename" : "app-icon-29-ipad.png",
       "idiom" : "ipad",
       "scale" : "1x",
       "size" : "29x29"
     },
     {
-      "filename" : "app-icon-29-ipad@2x.png",
+      "filename" : "Untitled (80 x 80 px) (60 x 60 px) (58 x 58 px) 1.jpg",
       "idiom" : "ipad",
       "scale" : "2x",
       "size" : "29x29"
     },
     {
-      "filename" : "app-icon-40-ipad.png",
+      "filename" : "Untitled (80 x 80 px) (40 x 40 px).jpg",
       "idiom" : "ipad",
       "scale" : "1x",
       "size" : "40x40"
     },
     {
-      "filename" : "app-icon-40-ipad@2x.png",
+      "filename" : "Untitled (80 x 80 px) 1.jpg",
       "idiom" : "ipad",
       "scale" : "2x",
       "size" : "40x40"
     },
     {
-      "filename" : "app-icon-76.png",
-      "idiom" : "ipad",
-      "scale" : "1x",
-      "size" : "76x76"
-    },
-    {
-      "filename" : "app-icon-76@2x.png",
+      "filename" : "Untitled (152 x 152 px).jpg",
       "idiom" : "ipad",
       "scale" : "2x",
       "size" : "76x76"
     },
     {
-      "filename" : "app-icon-83.5@2x.png",
+      "filename" : "Untitled (180 x 180 px) (120 x 120 px) (1024 x 1024 px) (167 x 167 px).jpg",
       "idiom" : "ipad",
       "scale" : "2x",
       "size" : "83.5x83.5"
     },
     {
-      "filename" : "app-icon-1024.png",
+      "filename" : "Untitled (180 x 180 px) (120 x 120 px) (1024 x 1024 px).jpg",
       "idiom" : "ios-marketing",
       "scale" : "1x",
       "size" : "1024x1024"
